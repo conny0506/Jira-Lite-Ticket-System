@@ -88,6 +88,9 @@ export class TicketsController {
     @Res() res: any,
   ) {
     const file = await this.ticketsService.getSubmissionFile(actorId, submissionId);
+    if (file.mode === 'redirect') {
+      return res.redirect(file.url);
+    }
     res.setHeader('Content-Type', file.mimeType);
     res.setHeader(
       'Content-Disposition',

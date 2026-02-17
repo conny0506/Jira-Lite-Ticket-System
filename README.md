@@ -1,53 +1,56 @@
 # Jira-lite Ticket Sistemi
 
-Ülgen AR-GE için geliştirilmiş, rol bazlı görev yönetimi ve teslim takibi yapan monorepo uygulamasıdır.
+Ülgen AR-GE için geliştirilmiş, rol bazlı görev yönetimi ve teslim takibi uygulamasıdır.
 
-- Backend: NestJS + Prisma + PostgreSQL + Redis (BullMQ)
-- Frontend: Next.js 16 (App Router) + Framer Motion
+- API: NestJS + Prisma + PostgreSQL + Redis (BullMQ)
+- Web: Next.js 16 + Framer Motion
 
-## Proje Özeti
+## Mevcut Durum
 
-Sistem, takım içi görev dağıtımı ve teslim süreçlerini tek panelden yönetmek için tasarlanmıştır:
+- Proje yerelde çalışırken veritabanı `docker-compose.yml` içindeki PostgreSQL servisindedir.
+- Yerel bağlantı örneği: `postgresql://postgres:postgres@localhost:5432/jira_lite?schema=public`
+- Bu nedenle bilgisayar kapalıysa sistem çalışmaz.
+
+## Cloud (Global) Yayın
+
+Proje cloud yayın için hazırlandı:
+- Cloud Postgres desteği (`DATABASE_URL`)
+- Cloud Redis desteği (`REDIS_URL`)
+- S3/R2 dosya depolama desteği (`STORAGE_DRIVER=s3`)
+- CORS için çoklu origin desteği (`WEB_ORIGIN` virgülle ayrılmış)
+
+Adım adım yayın dokümanı:
+- `DEPLOY.md`
+- Production env örneği:
+  - `.env.production.example`
+
+## Özellikler
 
 - Kaptan:
-  - Üye ekler/pasifleştirir
-  - Görev oluşturur, siler, durum değiştirir
-  - Bir görevi birden fazla üyeye atayabilir
-  - Tüm teslimleri filtreler, indirir, CSV dışa aktarır
+  - Üye ekleme / pasifleştirme
+  - Görev oluşturma / silme / atama / durum yönetimi
+  - Çoklu atama
+  - Tüm teslimleri filtreleme, indirme, CSV dışa aktarma
 - Üye:
-  - Sadece kendine atanan görevleri görür
-  - Görev durumunu güncelleyebilir
-  - PDF/Word/PPT dosya teslimi yapabilir
-  - Kendi teslimlerini görüntüler/indirir
-
-Not: Sistem proje seçimi olmadan çalışır. Görevler otomatik olarak `ULGEN-SYSTEM` sistem projesi altında yönetilir.
-
-## Öne Çıkan Özellikler
-
-- JWT access token + httpOnly refresh cookie (`jid`) ile oturum yönetimi
-- Rol bazlı yetkilendirme (Kaptan / Yönetim Kurulu / Üye)
-- Çoklu atama destekli görev kartları
-- Görev panosunda sürükle-bırak ile durum değiştirme
-- Teslim dosyası desteği:
-  - Uzantılar: `.pdf`, `.doc`, `.docx`, `.ppt`, `.pptx`
-  - Boyut limiti: 25 MB
-- Teslim ekranı:
-  - Üye/proje/tarih filtreleri
-  - Haftalık teslim grafiği
-  - CSV dışa aktarma
+  - Kendisine atanan görevleri görme
+  - Görev durumu güncelleme
+  - PDF/Word/PPT teslim gönderme
+  - Kendi teslimlerini görüntüleme ve indirme
 - Modern arayüz:
   - Sekme geçiş animasyonları
-  - Kart hover/micro-interaction efektleri
+  - Sürükle-bırak görev yönetimi
+  - Kişisel giriş deneyimi (terminal briefing + özlü söz ekranı)
 
 ## Klasör Yapısı
 
-- `apps/api`: Backend API
+- `apps/api`: Backend
 - `apps/web`: Frontend
-- `docker-compose.yml`: PostgreSQL + Redis servisleri
+- `DEPLOY.md`: Production yayın rehberi
+- `docker-compose.yml`: Yerel PostgreSQL + Redis
 
-## Kurulum
+## Yerel Kurulum
 
-1. Ortam değişkenlerini oluşturun:
+1. Ortam dosyalarını oluştur:
 
 ```powershell
 copy .env.example .env
@@ -55,26 +58,26 @@ copy .env.example apps\api\.env
 copy .env.example apps\web\.env.local
 ```
 
-2. Veritabanı ve Redis'i başlatın:
+2. Servisleri aç:
 
 ```powershell
 docker compose up -d
 ```
 
-3. Bağımlılıkları yükleyin:
+3. Bağımlılıkları kur:
 
 ```powershell
 npm install
 ```
 
-4. Prisma işlemlerini çalıştırın:
+4. Prisma:
 
 ```powershell
 npm run prisma:generate -w @jira-lite/api
 npm run prisma:migrate -w @jira-lite/api
 ```
 
-5. Uygulamaları başlatın:
+5. Uygulamaları başlat:
 
 ```powershell
 npm run dev -w @jira-lite/api
@@ -89,41 +92,14 @@ npm run dev -w @jira-lite/web
 
 ## İlk Giriş
 
-Eğer sistemde aktif kaptan yoksa API ilk açılışta otomatik kaptan üretir:
-
+Eğer sistemde aktif kaptan yoksa otomatik oluşturulur:
 - E-posta: `captain@ulgen.local`
 - Şifre: `1234`
-
-Bu değerler `.env` ile değiştirilebilir:
-
-- `BOOTSTRAP_CAPTAIN_EMAIL`
-- `BOOTSTRAP_CAPTAIN_PASSWORD`
-
-## API Uç Noktaları (Özet)
-
-- Kimlik:
-  - `POST /auth/login`
-  - `POST /auth/refresh`
-  - `POST /auth/logout`
-  - `GET /auth/me`
-- Takım:
-  - `GET /team-members`
-  - `POST /team-members`
-  - `DELETE /team-members/:id`
-- Görev:
-  - `GET /tickets`
-  - `POST /tickets`
-  - `PATCH /tickets/:id/status`
-  - `PATCH /tickets/:id/assignee`
-  - `DELETE /tickets/:id`
-- Teslim:
-  - `GET /tickets/:id/submissions`
-  - `POST /tickets/:id/submissions`
-  - `GET /tickets/submissions/:submissionId/download`
+- Ad Soyad: `Ece MUTLUER`
 
 ## Komutlar
 
-- Tüm proje (root):
+- Tüm proje:
   - `npm run dev`
   - `npm run build`
 - API:

@@ -5,6 +5,7 @@ import { HealthController } from './health.controller';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProjectsModule } from './projects/projects.module';
 import { QueueModule } from './queue/queue.module';
+import { StorageModule } from './storage/storage.module';
 import { TeamMembersModule } from './team-members/team-members.module';
 import { TicketsModule } from './tickets/tickets.module';
 
@@ -14,6 +15,7 @@ import { TicketsModule } from './tickets/tickets.module';
     AuthModule,
     PrismaModule,
     QueueModule,
+    StorageModule,
     TeamMembersModule,
     ProjectsModule,
     TicketsModule,

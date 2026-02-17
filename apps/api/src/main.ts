@@ -29,9 +29,13 @@ function mapValidationError(error: ValidationError): string[] {
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  const webOrigin = process.env.WEB_ORIGIN ?? 'http://localhost:3000';
+  const webOriginEnv = process.env.WEB_ORIGIN ?? 'http://localhost:3000';
+  const allowedOrigins = webOriginEnv
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean);
   app.enableCors({
-    origin: webOrigin,
+    origin: allowedOrigins,
     credentials: true,
   });
   app.useGlobalPipes(
@@ -58,12 +62,13 @@ async function bootstrap() {
     await prisma.teamMember.upsert({
       where: { email: email.toLowerCase() },
       update: {
+        name: 'Ece MUTLUER',
         role: 'CAPTAIN',
         active: true,
         passwordHash: auth.hashPassword(password),
       },
       create: {
-        name: 'Varsayılan Kaptan',
+        name: 'Ece MUTLUER',
         email: email.toLowerCase(),
         role: 'CAPTAIN',
         active: true,

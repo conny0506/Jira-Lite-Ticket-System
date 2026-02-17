@@ -1,9 +1,22 @@
 import { TicketPriority } from '@prisma/client';
-import { IsEnum, IsOptional, IsString, Length } from 'class-validator';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsEnum,
+  IsOptional,
+  IsString,
+  Length,
+} from 'class-validator';
 
 export class CreateTicketDto {
   @IsString()
   projectId!: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(30)
+  @IsString({ each: true })
+  assigneeIds?: string[];
 
   @IsString()
   @Length(3, 120)

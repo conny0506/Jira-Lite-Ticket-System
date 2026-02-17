@@ -1,92 +1,431 @@
 :root {
-  --bg: #f3f5f8;
-  --panel: #ffffff;
-  --line: #d8dde6;
-  --text: #18202b;
-  --muted: #637082;
-  --accent: #1565d8;
+  --bg: #0c1423;
+  --bg-soft: #121d31;
+  --panel: rgba(255, 255, 255, 0.05);
+  --panel-strong: rgba(255, 255, 255, 0.09);
+  --line: rgba(255, 255, 255, 0.14);
+  --text: #f2f6ff;
+  --muted: #aec0df;
+  --accent: #00d1b6;
+  --accent-2: #23a4ff;
+  --danger: #ff6078;
 }
 
 * {
   box-sizing: border-box;
 }
 
+html,
 body {
   margin: 0;
-  font-family: "Segoe UI", Tahoma, sans-serif;
-  background: radial-gradient(circle at top right, #e7efff, #f7f9fd 45%, #f3f5f8);
+  min-height: 100%;
+}
+
+body {
   color: var(--text);
+  font-family: "Bahnschrift", "Trebuchet MS", sans-serif;
+  background:
+    radial-gradient(1000px 380px at 8% -8%, rgba(35, 164, 255, 0.28), transparent 70%),
+    radial-gradient(900px 360px at 92% -10%, rgba(0, 209, 182, 0.22), transparent 72%),
+    linear-gradient(180deg, var(--bg), #08101c 56%, #060d18);
 }
 
-main {
-  max-width: 1100px;
+.app {
+  width: min(1400px, 94vw);
   margin: 0 auto;
-  padding: 24px 16px;
+  padding: 28px 0 36px;
+  animation: fadeIn 480ms ease;
 }
 
-h1, h2, h3 {
-  margin: 0 0 10px;
-}
-
-.grid {
+.hero {
   display: grid;
-  gap: 14px;
-  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  grid-template-columns: 1.3fr 1fr;
+  margin-bottom: 16px;
 }
 
-.panel {
-  border: 1px solid var(--line);
-  background: var(--panel);
-  border-radius: 10px;
-  padding: 14px;
+.hero h1 {
+  margin: 0;
+  font-size: clamp(1.9rem, 4vw, 2.8rem);
+  line-height: 1.08;
+  letter-spacing: 0.01em;
 }
 
-form {
-  display: grid;
-  gap: 8px;
-}
-
-input, select, button, textarea {
-  width: 100%;
-  padding: 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  font: inherit;
-}
-
-button {
-  background: var(--accent);
-  color: #fff;
-  border: 0;
-  cursor: pointer;
-}
-
-ul {
-  list-style: none;
-  padding: 0;
-  margin: 12px 0 0;
-  display: grid;
-  gap: 8px;
-}
-
-li {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 10px;
+.eyebrow {
+  margin: 0 0 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  font-size: 0.75rem;
+  color: var(--accent);
 }
 
 .muted {
   color: var(--muted);
-  font-size: 0.9rem;
 }
 
-.row {
+.stats {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.statCard {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--panel);
+  padding: 14px;
+  backdrop-filter: blur(5px);
+}
+
+.statCard span {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.statCard strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 1.55rem;
+}
+
+.errorBox {
+  margin: 0 0 12px;
+  border: 1px solid rgba(255, 96, 120, 0.45);
+  background: rgba(255, 96, 120, 0.18);
+  border-radius: 12px;
+  padding: 10px 12px;
+  color: #ffeaf0;
+}
+
+.workspace {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 340px 1fr;
+}
+
+.panel {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--panel);
+  backdrop-filter: blur(7px);
+}
+
+.loginPanel {
+  max-width: 520px;
+  margin: 40px auto 0;
+  padding: 16px;
+}
+
+.sidebar {
+  padding: 14px;
+}
+
+.panelHead {
   display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.panelHead h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.formBlock,
+.ticketForm {
+  display: grid;
   gap: 8px;
 }
 
-@media (max-width: 900px) {
-  .grid {
+input,
+textarea,
+select,
+button {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  padding: 10px 11px;
+  font: inherit;
+}
+
+input,
+textarea,
+select {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+textarea {
+  min-height: 68px;
+  resize: vertical;
+}
+
+button {
+  background: linear-gradient(115deg, var(--accent), var(--accent-2));
+  color: #03111d;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.projectList {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  max-height: 44vh;
+  overflow: auto;
+}
+
+.teamBlock {
+  margin-top: 16px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.projectList li {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.projectList li.active {
+  border-color: rgba(35, 164, 255, 0.7);
+  box-shadow: 0 0 0 1px rgba(35, 164, 255, 0.5) inset;
+}
+
+.projectBtn {
+  background: transparent;
+  border: 0;
+  text-align: left;
+  color: var(--text);
+  padding: 10px;
+}
+
+.projectBtn strong {
+  display: block;
+}
+
+.projectBtn span,
+.projectBtn small {
+  display: block;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.projectActions {
+  display: grid;
+  gap: 8px;
+  padding: 0 10px 10px;
+}
+
+.board {
+  padding: 14px;
+}
+
+.memberList {
+  list-style: none;
+  padding: 0;
+  margin: 10px 0 0;
+  display: grid;
+  gap: 8px;
+}
+
+.memberList li {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.roleTag {
+  display: inline-block;
+  margin-top: 4px;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 0.74rem;
+}
+
+.role-member {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.role-board {
+  background: rgba(35, 164, 255, 0.24);
+}
+
+.role-captain {
+  background: rgba(0, 209, 182, 0.3);
+}
+
+.columns {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(220px, 1fr));
+  overflow-x: auto;
+  padding-bottom: 3px;
+}
+
+.column {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 10px;
+  min-height: 380px;
+}
+
+.column header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.column h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.column header span {
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: var(--panel-strong);
+  font-size: 0.8rem;
+}
+
+.ticketStack {
+  display: grid;
+  gap: 8px;
+}
+
+.ticketCard {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px;
+  background: rgba(10, 16, 29, 0.8);
+  animation: rise 320ms ease;
+}
+
+.ticketCard strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.ticketCard p {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.ticketMeta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+
+.ticketMeta span {
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+}
+
+.ticketMeta select {
+  max-width: 125px;
+  padding: 6px 8px;
+}
+
+select[multiple] {
+  min-height: 92px;
+}
+
+.submissionBox {
+  margin-top: 8px;
+  border-top: 1px dashed var(--line);
+  padding-top: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.submissionBox h4 {
+  margin: 0;
+  font-size: 0.86rem;
+}
+
+.submissionList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.submissionList li {
+  display: grid;
+  gap: 2px;
+}
+
+.submissionList a {
+  color: #8be9ff;
+}
+
+.linkButton {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  color: #8be9ff;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 1080px) {
+  .hero,
+  .workspace {
     grid-template-columns: 1fr;
+  }
+
+  .stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .app {
+    width: min(1400px, 96vw);
+  }
+
+  .stats {
+    grid-template-columns: 1fr;
+  }
+
+  .columns {
+    grid-template-columns: repeat(4, minmax(270px, 1fr));
   }
 }

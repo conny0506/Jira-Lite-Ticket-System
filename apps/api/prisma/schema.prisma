@@ -21,6 +21,12 @@ enum TicketPriority {
   CRITICAL
 }
 
+enum TeamRole {
+  MEMBER
+  BOARD
+  CAPTAIN
+}
+
 model Project {
   id          String   @id @default(cuid())
   key         String   @unique
@@ -29,16 +35,80 @@ model Project {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   tickets     Ticket[]
+  assignments ProjectAssignment[]
 }
 
 model Ticket {
-  id          String         @id @default(cuid())
+  id          String             @id @default(cuid())
   projectId   String
   title       String
   description String?
-  status      TicketStatus   @default(TODO)
-  priority    TicketPriority @default(MEDIUM)
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
-  project     Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  status      TicketStatus       @default(TODO)
+  priority    TicketPriority     @default(MEDIUM)
+  completedAt DateTime?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  project     Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignees   TicketAssignment[]
+  submissions Submission[]
+}
+
+model TeamMember {
+  id               String       @id @default(cuid())
+  name             String
+  email            String       @unique
+  passwordHash     String       @default("03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4")
+  role             TeamRole     @default(MEMBER)
+  active           Boolean      @default(true)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  ticketAssignments TicketAssignment[]
+  projectAssignments ProjectAssignment[]
+  submissions      Submission[]
+  authSessions     AuthSession[]
+}
+
+model TicketAssignment {
+  ticketId    String
+  memberId    String
+  assignedAt  DateTime   @default(now())
+  ticket      Ticket     @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  member      TeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@id([ticketId, memberId])
+}
+
+model ProjectAssignment {
+  projectId   String
+  memberId    String
+  assignedAt  DateTime   @default(now())
+  project     Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  member      TeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, memberId])
+}
+
+model Submission {
+  id          String     @id @default(cuid())
+  ticketId    String
+  submittedById String
+  fileName    String
+  storageName String
+  mimeType    String
+  size        Int
+  note        String?
+  createdAt   DateTime   @default(now())
+  ticket      Ticket     @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  submittedBy TeamMember @relation(fields: [submittedById], references: [id], onDelete: Restrict)
+}
+
+model AuthSession {
+  id               String     @id @default(cuid())
+  memberId         String
+  refreshTokenHash String     @unique
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  member           TeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
 }

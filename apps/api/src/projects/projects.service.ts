@@ -108,7 +108,7 @@ export class ProjectsService {
       },
     });
     if (count !== [...new Set(memberIds)].length) {
-      throw new BadRequestException('All assignees must be active team members');
+      throw new BadRequestException('Tüm atananlar aktif takım üyesi olmalıdır');
     }
   }
 
@@ -117,13 +117,13 @@ export class ProjectsService {
       where: { id },
       select: { id: true },
     });
-    if (!project) throw new NotFoundException('Project not found');
+    if (!project) throw new NotFoundException('Proje bulunamadı');
   }
 
   private async assertCaptain(actorId: string) {
     const actor = await this.authService.getActorOrThrow(actorId);
     if (actor.role !== TeamRole.CAPTAIN) {
-      throw new BadRequestException('Only captain can manage projects');
+      throw new BadRequestException('Projeleri sadece kaptan yönetebilir');
     }
   }
 }

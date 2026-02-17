@@ -11,17 +11,17 @@ export const CurrentUserId = createParamDecorator(
     const request = ctx.switchToHttp().getRequest<{ headers: Record<string, string | undefined> }>();
     const authHeader = request.headers.authorization;
     if (!authHeader) {
-      throw new BadRequestException('Authorization header is required');
+      throw new BadRequestException('Authorization başlığı zorunludur');
     }
     const [scheme, token] = authHeader.split(' ');
     if (scheme !== 'Bearer' || !token) {
-      throw new BadRequestException('Authorization must be Bearer token');
+      throw new BadRequestException('Authorization değeri Bearer token olmalıdır');
     }
     try {
       const payload = verifyAccessToken(token);
       return payload.sub;
     } catch {
-      throw new UnauthorizedException('Invalid or expired access token');
+      throw new UnauthorizedException('Erişim anahtarı geçersiz veya süresi dolmuş');
     }
   },
 );

@@ -9,8 +9,9 @@ import {
 } from 'class-validator';
 
 export class CreateTicketDto {
+  @IsOptional()
   @IsString()
-  projectId!: string;
+  projectId?: string;
 
   @IsOptional()
   @IsArray()

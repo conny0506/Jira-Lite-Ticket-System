@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Post, Req, Res, UnauthorizedException } from '@nestjs/common';
 import { CurrentUserId } from './current-user-id.decorator';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
@@ -8,9 +8,36 @@ import { AuthService } from './auth.service';
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  private getCookieOptions() {
+    const isProd = process.env.NODE_ENV === 'production';
+    return {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: (isProd ? 'strict' : 'lax') as 'strict' | 'lax',
+      path: '/auth',
+      maxAge: Number(process.env.REFRESH_TOKEN_TTL_DAYS ?? 14) * 24 * 60 * 60 * 1000,
+    };
+  }
+
+  private readRefreshToken(req: any, dto?: RefreshTokenDto) {
+    if (dto?.refreshToken) return dto.refreshToken;
+    const cookieHeader = (req.headers?.cookie as string | undefined) ?? '';
+    const parts = cookieHeader.split(';').map((x) => x.trim());
+    const tokenPart = parts.find((part) => part.startsWith('jid='));
+    if (!tokenPart) return null;
+    const value = tokenPart.slice(4);
+    return decodeURIComponent(value);
+  }
+
   @Post('login')
-  login(@Body() dto: LoginDto) {
-    return this.authService.login(dto.email, dto.password);
+  async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: any) {
+    const result = await this.authService.login(dto.email, dto.password);
+    res.cookie('jid', result.refreshToken, this.getCookieOptions());
+    return {
+      accessToken: result.accessToken,
+      accessTokenExpiresAt: result.accessTokenExpiresAt,
+      user: result.user,
+    };
   }
 
   @Get('me')
@@ -19,12 +46,32 @@ export class AuthController {
   }
 
   @Post('refresh')
-  refresh(@Body() dto: RefreshTokenDto) {
-    return this.authService.refresh(dto.refreshToken);
+  async refresh(
+    @Req() req: any,
+    @Body() dto: RefreshTokenDto,
+    @Res({ passthrough: true }) res: any,
+  ) {
+    const refreshToken = this.readRefreshToken(req, dto);
+    if (!refreshToken) throw new UnauthorizedException('Yenileme anahtarı zorunludur');
+    const result = await this.authService.refresh(refreshToken);
+    res.cookie('jid', result.refreshToken, this.getCookieOptions());
+    return {
+      accessToken: result.accessToken,
+      accessTokenExpiresAt: result.accessTokenExpiresAt,
+      user: result.user,
+    };
   }
 
   @Post('logout')
-  logout(@Body() dto: RefreshTokenDto) {
-    return this.authService.logout(dto.refreshToken);
+  async logout(
+    @Req() req: any,
+    @Body() dto: RefreshTokenDto,
+    @Res({ passthrough: true }) res: any,
+  ) {
+    const refreshToken = this.readRefreshToken(req, dto);
+    if (!refreshToken) throw new UnauthorizedException('Yenileme anahtarı zorunludur');
+    const result = await this.authService.logout(refreshToken);
+    res.clearCookie('jid', { ...this.getCookieOptions(), maxAge: undefined });
+    return result;
   }
 }

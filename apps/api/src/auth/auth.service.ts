@@ -37,11 +37,11 @@ export class AuthService {
     });
 
     if (!member || !member.active) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException('Geçersiz giriş bilgileri');
     }
 
     if (member.passwordHash !== this.hashPassword(password)) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException('Geçersiz giriş bilgileri');
     }
 
     const refreshToken = this.generateRefreshToken();
@@ -95,7 +95,7 @@ export class AuthService {
       session.expiresAt.getTime() < Date.now() ||
       !session.member.active
     ) {
-      throw new UnauthorizedException('Invalid refresh token');
+      throw new UnauthorizedException('Geçersiz yenileme anahtarı');
     }
 
     const nextRefresh = this.generateRefreshToken();
@@ -143,7 +143,7 @@ export class AuthService {
     });
 
     if (!member || !member.active) {
-      throw new UnauthorizedException('Active user not found');
+      throw new UnauthorizedException('Aktif kullanıcı bulunamadı');
     }
     return member;
   }

@@ -60,7 +60,7 @@ export class TeamMembersService {
       where: { id },
       select: { id: true, role: true },
     });
-    if (!member) throw new NotFoundException('Team member not found');
+    if (!member) throw new NotFoundException('Takım üyesi bulunamadı');
 
     const nextRole = dto.role ?? member.role;
     const shouldCountForRole = dto.active !== false;
@@ -95,7 +95,7 @@ export class TeamMembersService {
       where: { id },
       select: { id: true },
     });
-    if (!member) throw new NotFoundException('Team member not found');
+    if (!member) throw new NotFoundException('Takım üyesi bulunamadı');
 
     return this.prisma.teamMember.update({
       where: { id },
@@ -113,7 +113,7 @@ export class TeamMembersService {
   private async assertCaptain(actorId: string) {
     const actor = await this.authService.getActorOrThrow(actorId);
     if (actor.role !== TeamRole.CAPTAIN) {
-      throw new BadRequestException('Only captain can manage team members');
+      throw new BadRequestException('Takım üyelerini sadece kaptan yönetebilir');
     }
   }
 
@@ -127,7 +127,7 @@ export class TeamMembersService {
         },
       });
       if (captainCount >= 1) {
-        throw new BadRequestException('Only one active captain is allowed');
+        throw new BadRequestException('Sistemde yalnızca bir aktif kaptan olabilir');
       }
     }
 
@@ -141,7 +141,7 @@ export class TeamMembersService {
       });
       if (boardCount >= 3) {
         throw new BadRequestException(
-          'Board team can have at most 3 active members',
+          'Yönetim kurulu ekibi en fazla 3 aktif üyeden oluşabilir',
         );
       }
     }

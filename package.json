@@ -1,0 +1,14 @@
+{
+  "name": "jira-lite-platform",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @jira-lite/api & npm run dev -w @jira-lite/web",
+    "dev:api": "npm run dev -w @jira-lite/api",
+    "dev:web": "npm run dev -w @jira-lite/web",
+    "build": "npm run build -w @jira-lite/api && npm run build -w @jira-lite/web"
+  }
+}

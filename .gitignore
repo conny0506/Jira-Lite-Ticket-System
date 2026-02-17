@@ -1,0 +1,10 @@
+node_modules/
+.next/
+dist/
+coverage/
+.turbo/
+*.log
+.env
+.env.local
+.env.*.local
+apps/api/prisma/migrations/

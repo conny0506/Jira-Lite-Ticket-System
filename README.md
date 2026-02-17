@@ -1,6 +1,6 @@
 # Jira-lite Ticket Sistemi
 
-Bu proje istenen teknoloji setiyle kurulmus monorepo iskeletidir:
+Bu proje monorepo iskeletidir:
 
 - API: NestJS + Prisma + PostgreSQL + Redis(BullMQ)
 - Web: Next.js (App Router)

@@ -28,6 +28,20 @@ body {
     radial-gradient(1000px 380px at 8% -8%, rgba(35, 164, 255, 0.28), transparent 70%),
     radial-gradient(900px 360px at 92% -10%, rgba(0, 209, 182, 0.22), transparent 72%),
     linear-gradient(180deg, var(--bg), #08101c 56%, #060d18);
+  position: relative;
+  overflow-x: hidden;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: -20%;
+  pointer-events: none;
+  background:
+    radial-gradient(600px 220px at 22% 12%, rgba(35, 164, 255, 0.08), transparent 72%),
+    radial-gradient(650px 240px at 78% 18%, rgba(0, 209, 182, 0.08), transparent 72%);
+  animation: drift 18s ease-in-out infinite alternate;
+  z-index: 0;
 }
 
 .app {
@@ -35,6 +49,8 @@ body {
   margin: 0 auto;
   padding: 28px 0 36px;
   animation: fadeIn 480ms ease;
+  position: relative;
+  z-index: 1;
 }
 
 .hero {
@@ -75,6 +91,13 @@ body {
   background: var(--panel);
   padding: 14px;
   backdrop-filter: blur(5px);
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 220ms ease;
+}
+
+.statCard:hover {
+  transform: translateY(-2px);
+  border-color: rgba(35, 164, 255, 0.45);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
 }
 
 .statCard span {
@@ -101,6 +124,7 @@ body {
   margin: 0 0 12px;
   border-radius: 12px;
   padding: 10px 12px;
+  animation: toastIn 220ms ease;
 }
 
 .toastSuccess {
@@ -124,6 +148,12 @@ body {
   border-radius: 18px;
   background: var(--panel);
   backdrop-filter: blur(7px);
+  transition: border-color 220ms ease, box-shadow 220ms ease;
+}
+
+.panel:hover {
+  border-color: rgba(35, 164, 255, 0.3);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.22);
 }
 
 .loginPanel {
@@ -146,11 +176,37 @@ body {
   background: rgba(255, 255, 255, 0.08);
   color: var(--text);
   border: 1px solid var(--line);
+  transition: transform 140ms ease, border-color 160ms ease, background 180ms ease;
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.tabBtn span {
+  position: relative;
+  z-index: 1;
+}
+
+.tabBtn:hover {
+  transform: translateY(-1px);
+  border-color: rgba(35, 164, 255, 0.55);
+  background: rgba(35, 164, 255, 0.16);
 }
 
 .tabBtn.active {
   border-color: rgba(35, 164, 255, 0.9);
-  background: rgba(35, 164, 255, 0.22);
+  background: rgba(35, 164, 255, 0.08);
+}
+
+.tabIndicator {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: linear-gradient(120deg, rgba(35, 164, 255, 0.28), rgba(0, 209, 182, 0.25));
+}
+
+.tabScene {
+  transform-origin: 50% 0%;
 }
 
 .projectPicker {
@@ -227,6 +283,17 @@ button {
   color: #03111d;
   font-weight: 700;
   cursor: pointer;
+  transition: transform 120ms ease, box-shadow 180ms ease, filter 180ms ease;
+}
+
+button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 18px rgba(0, 0, 0, 0.24);
+  filter: saturate(1.05);
+}
+
+button:active {
+  transform: translateY(0);
 }
 
 button:disabled {
@@ -301,6 +368,7 @@ button:disabled {
   border-radius: 12px;
   padding: 10px;
   background: rgba(255, 255, 255, 0.04);
+  animation: rise 340ms ease both;
 }
 
 .taskTable {
@@ -329,6 +397,12 @@ button:disabled {
   padding: 10px;
   display: grid;
   gap: 8px;
+  transition: transform 180ms ease, border-color 180ms ease;
+}
+
+.memberList li:hover {
+  transform: translateY(-2px);
+  border-color: rgba(35, 164, 255, 0.4);
 }
 
 .roleTag {
@@ -359,12 +433,24 @@ button:disabled {
   padding-bottom: 3px;
 }
 
+.columns.draggingMode .column {
+  border-color: rgba(174, 192, 223, 0.35);
+  background: rgba(35, 164, 255, 0.04);
+}
+
 .column {
   border: 1px solid var(--line);
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.03);
   padding: 10px;
   min-height: 380px;
+  transition: border-color 180ms ease, background 180ms ease, box-shadow 180ms ease;
+}
+
+.columnDrop {
+  border-color: rgba(35, 164, 255, 0.72);
+  background: rgba(35, 164, 255, 0.09);
+  box-shadow: 0 0 0 1px rgba(35, 164, 255, 0.3) inset;
 }
 
 .column header {
@@ -397,6 +483,47 @@ button:disabled {
   padding: 10px;
   background: rgba(10, 16, 29, 0.8);
   animation: rise 320ms ease;
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 220ms ease;
+}
+
+.ticketCard:hover {
+  transform: translateY(-2px);
+  border-color: rgba(35, 164, 255, 0.5);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.26);
+}
+
+.ticketCard.dragging {
+  opacity: 0.66;
+  transform: scale(0.99);
+  box-shadow: 0 18px 28px rgba(0, 0, 0, 0.35);
+}
+
+.dragHandle {
+  width: auto;
+  min-width: 44px;
+  margin: 0 0 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px dashed rgba(35, 164, 255, 0.55);
+  background: rgba(35, 164, 255, 0.14);
+  color: #cfe8ff;
+  cursor: grab;
+  line-height: 1;
+  box-shadow: none;
+  user-select: none;
+}
+
+.dragHandle:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+.dragHandle:active {
+  cursor: grabbing;
+}
+
+.ticketCard.dropPulse {
+  animation: dropPulse 420ms ease;
 }
 
 .ticketCard strong {
@@ -517,6 +644,12 @@ select[multiple] {
   justify-content: space-between;
   gap: 10px;
   align-items: center;
+  transition: transform 180ms ease, border-color 180ms ease;
+}
+
+.submissionRows li:hover {
+  transform: translateY(-2px);
+  border-color: rgba(35, 164, 255, 0.45);
 }
 
 .fileBadge {
@@ -601,6 +734,12 @@ select[multiple] {
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 10px;
+  transition: transform 180ms ease, border-color 180ms ease;
+}
+
+.timeline li:hover {
+  transform: translateY(-2px);
+  border-color: rgba(35, 164, 255, 0.42);
 }
 
 .linkButton {
@@ -614,9 +753,11 @@ select[multiple] {
 @keyframes fadeIn {
   from {
     opacity: 0;
+    transform: translateY(4px);
   }
   to {
     opacity: 1;
+    transform: translateY(0);
   }
 }
 
@@ -637,6 +778,82 @@ select[multiple] {
   }
   to {
     background-position: -20% 0;
+  }
+}
+
+@keyframes dropPulse {
+  0% {
+    transform: scale(0.98);
+    border-color: rgba(35, 164, 255, 0.85);
+    box-shadow: 0 0 0 0 rgba(35, 164, 255, 0.36);
+  }
+  60% {
+    transform: scale(1.01);
+    box-shadow: 0 0 0 7px rgba(35, 164, 255, 0.12);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(35, 164, 255, 0);
+  }
+}
+
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes drift {
+  from {
+    transform: translate3d(-2%, -1%, 0) scale(1);
+  }
+  to {
+    transform: translate3d(2%, 1%, 0) scale(1.04);
+  }
+}
+
+.stats .statCard:nth-child(1),
+.tabStack .tabBtn:nth-child(1),
+.cardGrid .infoCard:nth-child(1),
+.ticketStack .ticketCard:nth-child(1),
+.submissionRows li:nth-child(1) {
+  animation-delay: 20ms;
+}
+
+.stats .statCard:nth-child(2),
+.tabStack .tabBtn:nth-child(2),
+.cardGrid .infoCard:nth-child(2),
+.ticketStack .ticketCard:nth-child(2),
+.submissionRows li:nth-child(2) {
+  animation-delay: 70ms;
+}
+
+.stats .statCard:nth-child(3),
+.tabStack .tabBtn:nth-child(3),
+.ticketStack .ticketCard:nth-child(3),
+.submissionRows li:nth-child(3) {
+  animation-delay: 120ms;
+}
+
+.tabStack .tabBtn:nth-child(4),
+.ticketStack .ticketCard:nth-child(4),
+.submissionRows li:nth-child(4) {
+  animation-delay: 170ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 

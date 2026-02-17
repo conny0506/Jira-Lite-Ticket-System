@@ -1,6 +1,7 @@
 'use client';
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { DragEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 
 type TeamRole = 'MEMBER' | 'BOARD' | 'CAPTAIN';
 type TicketStatus = 'TODO' | 'IN_PROGRESS' | 'IN_REVIEW' | 'DONE';
@@ -113,6 +114,10 @@ export default function HomePage() {
   const [taskPriorityFilter, setTaskPriorityFilter] =
     useState<'ALL' | TicketPriority>('ALL');
   const [taskAssigneeFilter, setTaskAssigneeFilter] = useState<'ALL' | string>('ALL');
+  const [dragTicketId, setDragTicketId] = useState<string | null>(null);
+  const [dragOverStatus, setDragOverStatus] = useState<TicketStatus | null>(null);
+  const [isBoardDragging, setIsBoardDragging] = useState(false);
+  const [dropPulseTicketId, setDropPulseTicketId] = useState<string | null>(null);
   const [submissionSearch, setSubmissionSearch] = useState('');
   const [submissionByFilter, setSubmissionByFilter] = useState<'ALL' | string>('ALL');
   const [submissionProjectFilter, setSubmissionProjectFilter] =
@@ -490,7 +495,11 @@ export default function HomePage() {
     }
   }
 
-  async function moveStatus(ticket: Ticket, status: TicketStatus) {
+  async function moveStatus(
+    ticket: Ticket,
+    status: TicketStatus,
+    origin: 'manual' | 'drag' = 'manual',
+  ) {
     if (ticket.status === status) return;
     setError('');
     const previousTickets = tickets;
@@ -505,11 +514,42 @@ export default function HomePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),
       });
+      if (origin === 'drag') {
+        setDropPulseTicketId(ticket.id);
+        setTimeout(() => setDropPulseTicketId(null), 420);
+      }
       showToast('success', 'Durum güncellendi');
     } catch (e) {
       setTickets(previousTickets);
       setError((e as Error).message);
     }
+  }
+
+  function onBoardDragStart(ticketId: string) {
+    setDragTicketId(ticketId);
+    setIsBoardDragging(true);
+  }
+
+  function onBoardDragEnd() {
+    setDragTicketId(null);
+    setDragOverStatus(null);
+    setIsBoardDragging(false);
+  }
+
+  function onColumnDragOver(e: DragEvent<HTMLElement>, status: TicketStatus) {
+    e.preventDefault();
+    if (dragOverStatus !== status) setDragOverStatus(status);
+  }
+
+  function onColumnDrop(e: DragEvent<HTMLElement>, status: TicketStatus) {
+    e.preventDefault();
+    if (!dragTicketId) return;
+    const ticket = tickets.find((x) => x.id === dragTicketId);
+    setDragTicketId(null);
+    setDragOverStatus(null);
+    setIsBoardDragging(false);
+    if (!ticket) return;
+    void moveStatus(ticket, status, 'drag');
   }
 
   function setUpload(ticketId: string, patch: Partial<UploadDraft>) {
@@ -708,18 +748,22 @@ export default function HomePage() {
           </div>
 
           {isCaptain ? (
-            <div className="tabStack">
-              <button type="button" className={captainTab === 'overview' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('overview')}>Genel</button>
-              <button type="button" className={captainTab === 'team' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('team')}>Takım</button>
-              <button type="button" className={captainTab === 'tasks' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('tasks')}>Görevler</button>
-              <button type="button" className={captainTab === 'submissions' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('submissions')}>Teslimler</button>
-            </div>
+            <LayoutGroup id="captain-tabs">
+              <div className="tabStack">
+                <button type="button" className={captainTab === 'overview' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('overview')}><span>Genel</span>{captainTab === 'overview' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                <button type="button" className={captainTab === 'team' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('team')}><span>Takım</span>{captainTab === 'team' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                <button type="button" className={captainTab === 'tasks' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('tasks')}><span>Görevler</span>{captainTab === 'tasks' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                <button type="button" className={captainTab === 'submissions' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('submissions')}><span>Teslimler</span>{captainTab === 'submissions' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+              </div>
+            </LayoutGroup>
           ) : (
-            <div className="tabStack">
-              <button type="button" className={memberTab === 'my_tasks' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('my_tasks')}>Bana Atananlar</button>
-              <button type="button" className={memberTab === 'my_submissions' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('my_submissions')}>Teslimlerim</button>
-              <button type="button" className={memberTab === 'timeline' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('timeline')}>Akış</button>
-            </div>
+            <LayoutGroup id="member-tabs">
+              <div className="tabStack">
+                <button type="button" className={memberTab === 'my_tasks' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('my_tasks')}><span>Bana Atananlar</span>{memberTab === 'my_tasks' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                <button type="button" className={memberTab === 'my_submissions' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('my_submissions')}><span>Teslimlerim</span>{memberTab === 'my_submissions' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                <button type="button" className={memberTab === 'timeline' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('timeline')}><span>Akış</span>{memberTab === 'timeline' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+              </div>
+            </LayoutGroup>
           )}
 
           <p className="muted">
@@ -738,8 +782,16 @@ export default function HomePage() {
               </div>
             </div>
           )}
-
+          <AnimatePresence mode="wait" initial={false}>
           {!loading && isCaptain && captainTab === 'overview' && (
+            <motion.div
+              key="captain-overview"
+              className="tabScene"
+              initial={{ opacity: 0, y: 10, scale: 0.99 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.99 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+            >
             <div className="cardGrid">
               <article className="infoCard">
                 <h3>Takım Dağılımı</h3>
@@ -758,9 +810,18 @@ export default function HomePage() {
                 </p>
               </article>
             </div>
+            </motion.div>
           )}
 
           {!loading && isCaptain && captainTab === 'team' && (
+            <motion.div
+              key="captain-team"
+              className="tabScene"
+              initial={{ opacity: 0, y: 10, scale: 0.99 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.99 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+            >
             <div className="teamBlock">
               <div className="filterRow">
                 <input
@@ -807,10 +868,18 @@ export default function HomePage() {
                 ))}
               </ul>
             </div>
+            </motion.div>
           )}
 
           {!loading && isCaptain && captainTab === 'tasks' && (
-            <>
+            <motion.div
+              key="captain-tasks"
+              className="tabScene"
+              initial={{ opacity: 0, y: 10, scale: 0.99 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.99 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+            >
               <div className="filterRow">
                 <input
                   placeholder="Görev ara"
@@ -883,16 +952,43 @@ export default function HomePage() {
               </form>
 
               {taskLayout === 'board' ? (
-                <div className="columns">
+                <div className={isBoardDragging ? 'columns draggingMode' : 'columns'}>
                   {STATUS_LIST.map((status) => (
-                    <section key={status} className="column">
+                    <section
+                      key={status}
+                      className={dragOverStatus === status ? 'column columnDrop' : 'column'}
+                      onDragOver={(e) => onColumnDragOver(e, status)}
+                      onDragLeave={() =>
+                        setDragOverStatus((prev) => (prev === status ? null : prev))
+                      }
+                      onDrop={(e) => onColumnDrop(e, status)}
+                    >
                       <header>
                         <h3>{STATUS_LABELS[status]}</h3>
                         <span>{grouped[status].length}</span>
                       </header>
                       <div className="ticketStack">
                         {grouped[status].map((ticket) => (
-                          <article key={ticket.id} className="ticketCard">
+                          <article
+                            key={ticket.id}
+                            className={[
+                              'ticketCard',
+                              dragTicketId === ticket.id ? 'dragging' : '',
+                              dropPulseTicketId === ticket.id ? 'dropPulse' : '',
+                            ]
+                              .join(' ')
+                              .trim()}
+                          >
+                            <button
+                              type="button"
+                              className="dragHandle"
+                              draggable
+                              onDragStart={() => onBoardDragStart(ticket.id)}
+                              onDragEnd={onBoardDragEnd}
+                              title="Durum değiştirmek için sürükle"
+                            >
+                              <span>⋮⋮</span>
+                            </button>
                             <strong>{ticket.title}</strong>
                             <p>{ticket.description || '-'}</p>
                             <div className="ticketMeta">
@@ -959,11 +1055,18 @@ export default function HomePage() {
                   </tbody>
                 </table>
               )}
-            </>
+            </motion.div>
           )}
 
           {!loading && isCaptain && captainTab === 'submissions' && (
-            <>
+            <motion.div
+              key="captain-submissions"
+              className="tabScene"
+              initial={{ opacity: 0, y: 10, scale: 0.99 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.99 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+            >
               <div className="filterRow">
                 <input
                   placeholder="Dosya ara"
@@ -1041,11 +1144,18 @@ export default function HomePage() {
                   </div>
                 ))}
               </div>
-            </>
+            </motion.div>
           )}
 
           {!loading && !isCaptain && memberTab === 'my_tasks' && (
-            <>
+            <motion.div
+              key="member-tasks"
+              className="tabScene"
+              initial={{ opacity: 0, y: 10, scale: 0.99 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.99 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+            >
               <div className="filterRow">
                 <input
                   placeholder="Görev ara"
@@ -1090,11 +1200,18 @@ export default function HomePage() {
                 </article>
               ))}
               </div>
-            </>
+            </motion.div>
           )}
 
           {!loading && !isCaptain && memberTab === 'my_submissions' && (
-            <>
+            <motion.div
+              key="member-submissions"
+              className="tabScene"
+              initial={{ opacity: 0, y: 10, scale: 0.99 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.99 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+            >
               <div className="filterRow">
                 <input
                   placeholder="Teslim dosyası ara"
@@ -1118,19 +1235,27 @@ export default function HomePage() {
                 </li>
               ))}
               </ul>
-            </>
+            </motion.div>
           )}
 
           {!loading && !isCaptain && memberTab === 'timeline' && (
-            <ul className="timeline">
+            <motion.ul
+              key="member-timeline"
+              className="timeline tabScene"
+              initial={{ opacity: 0, y: 10, scale: 0.99 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.99 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+            >
               {myTickets.map((ticket) => (
                 <li key={ticket.id}>
                   <strong>{ticket.title}</strong>
                   <p>{STATUS_LABELS[ticket.status]}</p>
                 </li>
               ))}
-            </ul>
+            </motion.ul>
           )}
+          </AnimatePresence>
         </section>
       </section>
     </main>

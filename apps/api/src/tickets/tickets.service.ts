@@ -4,12 +4,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { TeamRole } from '@prisma/client';
-import { randomUUID } from 'crypto';
-import { mkdir, writeFile } from 'fs/promises';
-import { join } from 'path';
 import { AuthService } from '../auth/auth.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { QueueService } from '../queue/queue.service';
+import { StorageService } from '../storage/storage.service';
 import { CreateSubmissionDto } from './dto/create-submission.dto';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { UpdateTicketAssigneeDto } from './dto/update-ticket-assignee.dto';
@@ -17,7 +15,6 @@ import { UpdateTicketStatusDto } from './dto/update-ticket-status.dto';
 
 @Injectable()
 export class TicketsService {
-  private readonly uploadDir = join(process.cwd(), 'uploads');
   private readonly systemProjectKey = 'ULGEN-SYSTEM';
   private readonly systemProjectName = 'Ülgen AR-GE Görev Merkezi';
   private readonly allowedMimeTypes = new Set([
@@ -32,6 +29,7 @@ export class TicketsService {
     private readonly prisma: PrismaService,
     private readonly queueService: QueueService,
     private readonly authService: AuthService,
+    private readonly storageService: StorageService,
   ) {}
 
   async list(actorId: string, projectId?: string) {
@@ -241,18 +239,14 @@ export class TicketsService {
       throw new BadRequestException('submittedById alanı giriş yapan kullanıcı ile aynı olmalıdır');
     }
     await this.ensureActiveMembers([dto.submittedById]);
-    await mkdir(this.uploadDir, { recursive: true });
-
-    const storageName = `${randomUUID()}${ext}`;
-    const path = join(this.uploadDir, storageName);
-    await writeFile(path, file.buffer);
+    const stored = await this.storageService.storeSubmissionFile(file);
 
     return this.prisma.submission.create({
       data: {
         ticketId,
         submittedById: dto.submittedById,
         fileName: file.originalname,
-        storageName,
+        storageName: stored.storageName,
         mimeType: file.mimetype,
         size: file.size,
         note: dto.note,
@@ -277,11 +271,12 @@ export class TicketsService {
     if (!submission) throw new NotFoundException('Teslim kaydı bulunamadı');
     await this.assertTicketAccess(actorId, submission.ticketId);
 
-    return {
-      path: join(this.uploadDir, submission.storageName),
-      fileName: submission.fileName,
-      mimeType: submission.mimeType,
-    };
+    const target = await this.storageService.resolveDownloadTarget(
+      submission.storageName,
+      submission.fileName,
+      submission.mimeType,
+    );
+    return { ...target, fileName: submission.fileName, mimeType: submission.mimeType };
   }
 
   private extractExtension(name: string) {

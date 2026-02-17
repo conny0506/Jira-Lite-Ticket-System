@@ -38,6 +38,7 @@ type Ticket = {
   description?: string | null;
   status: TicketStatus;
   priority: TicketPriority;
+  completedAt?: string | null;
   assignees: Array<{ member: TeamMember }>;
   submissions: Submission[];
 };
@@ -56,6 +57,7 @@ type AuthBundle = {
 type CaptainTab = 'overview' | 'team' | 'tasks' | 'submissions';
 type MemberTab = 'my_tasks' | 'my_submissions' | 'timeline';
 type ToastItem = { id: number; type: 'success' | 'error'; message: string };
+type IntroStage = 'none' | 'terminal' | 'quote';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 const STATUS_LIST: TicketStatus[] = ['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'DONE'];
@@ -79,6 +81,14 @@ const PRIORITY_LABELS: Record<TicketPriority, string> = {
   HIGH: 'Yüksek',
   CRITICAL: 'Kritik',
 };
+
+const SUCCESS_QUOTES = [
+  'Disiplinli ilerleme, günlük motivasyondan daha güçlüdür.',
+  'Küçük ama sürekli adımlar, büyük sonuçlar üretir.',
+  'Mükemmeli bekleme, bugün başla ve geliştir.',
+  'Odaklandığın iş, gelecekteki standardını belirler.',
+  'Başarı tesadüf değil, tekrarlanan doğru davranıştır.',
+];
 
 export default function HomePage() {
   const [authBundle, setAuthBundle] = useState<AuthBundle | null>(null);
@@ -127,6 +137,8 @@ export default function HomePage() {
   const [memberTaskSearch, setMemberTaskSearch] = useState('');
   const [memberSubmissionSearch, setMemberSubmissionSearch] = useState('');
   const [toastQueue, setToastQueue] = useState<ToastItem[]>([]);
+  const [introStage, setIntroStage] = useState<IntroStage>('none');
+  const [introQuote, setIntroQuote] = useState(SUCCESS_QUOTES[0]);
   const toastIdRef = useRef(1);
 
   const currentUser = authBundle?.user ?? null;
@@ -202,6 +214,129 @@ export default function HomePage() {
           .includes(memberSubmissionSearch.toLowerCase()),
       );
   }, [allSubmissions, currentUser, memberSubmissionSearch]);
+
+  const todayStart = useMemo(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }, []);
+
+  const myActiveTaskCount = useMemo(() => {
+    if (!currentUser) return 0;
+    return tickets.filter(
+      (ticket) =>
+        ticket.status !== 'DONE' &&
+        ticket.assignees.some((x) => x.member.id === currentUser.id),
+    ).length;
+  }, [tickets, currentUser]);
+
+  const myTodaySubmissionCount = useMemo(() => {
+    if (!currentUser) return 0;
+    return allSubmissions.filter(
+      ({ submission }) =>
+        submission.submittedBy.id === currentUser.id &&
+        new Date(submission.createdAt).getTime() >= todayStart.getTime(),
+    ).length;
+  }, [allSubmissions, currentUser, todayStart]);
+
+  const captainOpenTaskCount = useMemo(
+    () => tickets.filter((x) => x.status !== 'DONE').length,
+    [tickets],
+  );
+
+  const introInsights = useMemo(() => {
+    if (!currentUser) return [] as string[];
+
+    if (isCaptain) {
+      const openTickets = tickets.filter((x) => x.status !== 'DONE');
+      const unassignedOpen = openTickets.filter((x) => x.assignees.length === 0).length;
+      const criticalOpen = openTickets.filter((x) => x.priority === 'CRITICAL').length;
+      const reviewCount = openTickets.filter((x) => x.status === 'IN_REVIEW').length;
+      const doneToday = tickets.filter(
+        (x) =>
+          x.status === 'DONE' &&
+          x.completedAt &&
+          new Date(x.completedAt).getTime() >= todayStart.getTime(),
+      ).length;
+
+      return [
+        `Öneri: ${criticalOpen} kritik görev için gün başında kısa plan yap.`,
+        `Öneri: ${unassignedOpen} atanmamış açık görev var, sahiplik belirle.`,
+        `Öneri: İncelemede ${reviewCount} görev var, akşamdan önce netleştir.`,
+        `İvme: Bugün ${doneToday} görev tamamlandı.`,
+      ];
+    }
+
+    const myOpen = tickets.filter(
+      (x) =>
+        x.status !== 'DONE' &&
+        x.assignees.some((a) => a.member.id === currentUser.id),
+    );
+    const myCritical = myOpen.filter((x) => x.priority === 'CRITICAL').length;
+    const myReview = myOpen.filter((x) => x.status === 'IN_REVIEW').length;
+    const myTodo = myOpen.filter((x) => x.status === 'TODO').length;
+
+    return [
+      `Öneri: Önce ${myCritical} kritik görevi ele al.`,
+      `Öneri: Beklemede ${myTodo} görev var, birini hemen başlat.`,
+      `Öneri: İncelemede ${myReview} görev var, geri bildirimleri kapat.`,
+      `İvme: Bugün ${myTodaySubmissionCount} teslim gönderdin.`,
+    ];
+  }, [currentUser, isCaptain, tickets, todayStart, myTodaySubmissionCount]);
+
+  const introScore = useMemo(() => {
+    const clamp = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
+    if (!currentUser) {
+      return { score: 50, label: 'Orta', tone: 'mid' as 'high' | 'mid' | 'low' };
+    }
+
+    if (isCaptain) {
+      const openTickets = tickets.filter((x) => x.status !== 'DONE');
+      const criticalOpen = openTickets.filter((x) => x.priority === 'CRITICAL').length;
+      const unassignedOpen = openTickets.filter((x) => x.assignees.length === 0).length;
+      const reviewCount = openTickets.filter((x) => x.status === 'IN_REVIEW').length;
+      const doneToday = tickets.filter(
+        (x) =>
+          x.status === 'DONE' &&
+          x.completedAt &&
+          new Date(x.completedAt).getTime() >= todayStart.getTime(),
+      ).length;
+
+      const score = clamp(
+        82 - openTickets.length * 1.3 - criticalOpen * 3.2 - unassignedOpen * 2.4 - reviewCount * 1.1 + doneToday * 2.5,
+      );
+      if (score >= 75) return { score, label: 'Yüksek', tone: 'high' as const };
+      if (score >= 50) return { score, label: 'Orta', tone: 'mid' as const };
+      return { score, label: 'Düşük', tone: 'low' as const };
+    }
+
+    const myOpen = tickets.filter(
+      (x) =>
+        x.status !== 'DONE' &&
+        x.assignees.some((a) => a.member.id === currentUser.id),
+    );
+    const myCritical = myOpen.filter((x) => x.priority === 'CRITICAL').length;
+    const myReview = myOpen.filter((x) => x.status === 'IN_REVIEW').length;
+    const myTodo = myOpen.filter((x) => x.status === 'TODO').length;
+
+    const score = clamp(
+      84 - myOpen.length * 2.1 - myCritical * 3.8 - myTodo * 1.7 - myReview * 1.2 + myTodaySubmissionCount * 2.2,
+    );
+    if (score >= 75) return { score, label: 'Yüksek', tone: 'high' as const };
+    if (score >= 50) return { score, label: 'Orta', tone: 'mid' as const };
+    return { score, label: 'Düşük', tone: 'low' as const };
+  }, [currentUser, isCaptain, tickets, todayStart, myTodaySubmissionCount]);
+
+  const todayText = useMemo(
+    () =>
+      new Date().toLocaleDateString('tr-TR', {
+        weekday: 'long',
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric',
+      }),
+    [],
+  );
 
   const filteredSubmissions = allSubmissions.filter(({ submission, ticket }) => {
     const byName = submission.fileName
@@ -373,7 +508,12 @@ export default function HomePage() {
       if (!res.ok) throw new Error(await res.text());
       const bundle = (await res.json()) as AuthBundle;
       localStorage.setItem('jira_auth', JSON.stringify(bundle));
+      setLoading(true);
       setAuthBundle(bundle);
+      setIntroStage('terminal');
+      setIntroQuote(
+        SUCCESS_QUOTES[Math.floor(Math.random() * SUCCESS_QUOTES.length)],
+      );
       setLoginEmail('');
       setLoginPassword('');
       showToast('success', 'Giriş başarılı');
@@ -400,6 +540,7 @@ export default function HomePage() {
     setTeamMembers([]);
     setCaptainTab('overview');
     setMemberTab('my_tasks');
+    setIntroStage('none');
     showToast('success', 'Oturum kapatıldı');
   }
 
@@ -697,6 +838,106 @@ export default function HomePage() {
             <button type="submit">Giriş Yap</button>
           </form>
         </section>
+      </main>
+    );
+  }
+
+  if (introStage !== 'none') {
+    return (
+      <main className="introShell">
+        <AnimatePresence mode="wait">
+          {introStage === 'terminal' && (
+            <motion.section
+              key="intro-terminal"
+              className="introTerminal"
+              initial={{ opacity: 0, y: 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -18 }}
+              transition={{ duration: 0.35, ease: 'easeOut' }}
+            >
+              <p className="introTag">ULGEN://DAILY-BRIEF</p>
+              <h1>Hoş geldin, {currentUser.name}.</h1>
+              <div className="introScore">
+                <p className="introScoreValue">{`Günlük Odak Puanı: ${introScore.score}/100`}</p>
+                <span
+                  className={
+                    introScore.tone === 'high'
+                      ? 'scoreBadge scoreHigh'
+                      : introScore.tone === 'mid'
+                        ? 'scoreBadge scoreMid'
+                        : 'scoreBadge scoreLow'
+                  }
+                >
+                  {`Durum: ${introScore.label}`}
+                </span>
+              </div>
+              <div className="terminalBox">
+                <p className="terminalLine">{`> Tarih: ${todayText}`}</p>
+                {loading && (
+                  <p className="terminalLine">{'> Günlük durum hazırlanıyor...'}</p>
+                )}
+                {isCaptain ? (
+                  <>
+                    <p className="terminalLine">
+                      {`> Takımda toplam ${teamMembers.length} aktif üye var.`}
+                    </p>
+                    <p className="terminalLine">
+                      {`> Bugün yönetilecek ${captainOpenTaskCount} aktif görev var.`}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="terminalLine">
+                      {`> Bugün ${myActiveTaskCount} aktif görevin var.`}
+                    </p>
+                    <p className="terminalLine">
+                      {`> Bugün ${myTodaySubmissionCount} teslim gönderdin.`}
+                    </p>
+                  </>
+                )}
+                <p className="terminalLine">
+                  {'> AI Asistan: Odaklan, ilerle, tamamla.'}
+                </p>
+                {introInsights.slice(0, 3).map((line) => (
+                  <p key={line} className="terminalLine">{`> ${line}`}</p>
+                ))}
+              </div>
+              <button
+                type="button"
+                className="introActionBtn"
+                onClick={() => {
+                  setIntroQuote(
+                    SUCCESS_QUOTES[Math.floor(Math.random() * SUCCESS_QUOTES.length)],
+                  );
+                  setIntroStage('quote');
+                }}
+              >
+                Girişe Devam Et
+              </button>
+            </motion.section>
+          )}
+
+          {introStage === 'quote' && (
+            <motion.section
+              key="intro-quote"
+              className="introQuote"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.3 }}
+            >
+              <p className="quoteMark">“</p>
+              <blockquote>{introQuote}</blockquote>
+              <button
+                type="button"
+                className="introActionBtn introLightBtn"
+                onClick={() => setIntroStage('none')}
+              >
+                Çalışma Alanına Geç
+              </button>
+            </motion.section>
+          )}
+        </AnimatePresence>
       </main>
     );
   }

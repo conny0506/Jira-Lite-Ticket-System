@@ -8,10 +8,7 @@ type TicketEventPayload = {
 
 @Injectable()
 export class QueueService implements OnModuleDestroy {
-  private readonly connection = {
-    host: process.env.REDIS_HOST ?? '127.0.0.1',
-    port: Number(process.env.REDIS_PORT ?? 6379),
-  };
+  private readonly connection = this.resolveConnection();
 
   private readonly queue = new Queue('ticket-events', {
     connection: this.connection,
@@ -36,5 +33,25 @@ export class QueueService implements OnModuleDestroy {
   async onModuleDestroy() {
     await this.worker.close();
     await this.queue.close();
+  }
+
+  private resolveConnection() {
+    const redisUrl = process.env.REDIS_URL;
+    if (!redisUrl) {
+      return {
+        host: process.env.REDIS_HOST ?? '127.0.0.1',
+        port: Number(process.env.REDIS_PORT ?? 6379),
+      };
+    }
+
+    const parsed = new URL(redisUrl);
+    return {
+      host: parsed.hostname,
+      port: Number(parsed.port || 6379),
+      username: parsed.username || undefined,
+      password: parsed.password || undefined,
+      db: Number(parsed.pathname.replace('/', '') || 0),
+      tls: parsed.protocol === 'rediss:' ? {} : undefined,
+    };
   }
 }

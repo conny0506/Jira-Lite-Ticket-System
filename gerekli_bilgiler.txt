@@ -1,0 +1,7 @@
+Neon : postgresql://neondb_owner:npg_veJZapSTz7q3@ep-square-sound-abuqt1b9-pooler.eu-west-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+PSTASH_REDIS_REST_URL="https://sacred-eft-13242.upstash.io"
+UPSTASH_REDIS_REST_TOKEN="ATO6AAIncDE0NmUxY2RiMTQ1OGY0NTdkOGU0N2FmNjljYjU5MDllNXAxMTMyNDI"
+R2_BUCKET= ulgen
+R2_ENDPOINT= https://0890246daf44237ca037dcb2493c5f14.r2.cloudflarestorage.com
+R2_ACCESS_KEY_ID= aa1cf12222eaa5adba32c75d6a6bef66
+R2_SECRET_ACCESS_KEY= f0b1dace60c0a7f688e7d4b09dc9b21565f82b3cc5339b7423f7915c506ddda0

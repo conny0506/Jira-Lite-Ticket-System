@@ -93,8 +93,7 @@ npx prisma migrate deploy --schema apps/api/prisma/schema.prisma
 ```
 
 Note:
-- `render.yaml` uses `npm run start:prod -w @jira-lite/api`, which already runs
-  `prisma migrate deploy` before starting the API.
+- `render.yaml` runs `prisma migrate deploy` in the build step before API build.
 
 ## 5) Health Check
 

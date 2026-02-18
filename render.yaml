@@ -4,11 +4,13 @@ services:
     runtime: node
     rootDir: .
     healthCheckPath: /health
-    buildCommand: npm install && npm run prisma:generate -w @jira-lite/api && npm run build -w @jira-lite/api
-    startCommand: npm run start:prod -w @jira-lite/api
+    buildCommand: npm install --include=dev && npm run prisma:generate -w @jira-lite/api && npx prisma migrate deploy --schema apps/api/prisma/schema.prisma && npm run build -w @jira-lite/api
+    startCommand: npm run start -w @jira-lite/api
     envVars:
       - key: NODE_VERSION
         value: 22
+      - key: NPM_CONFIG_PRODUCTION
+        value: "false"
       - key: NODE_ENV
         value: production
       - key: API_PORT

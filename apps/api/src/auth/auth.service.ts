@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  ServiceUnavailableException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import * as argon2 from 'argon2';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -193,11 +198,17 @@ export class AuthService {
       `${(process.env.WEB_ORIGIN ?? 'http://localhost:3000').split(',')[0].trim()}/reset-password`;
     const resetUrl = `${baseUrl}?token=${encodeURIComponent(rawToken)}`;
 
-    await this.passwordResetMailService.sendPasswordResetEmail({
-      to: member.email,
-      name: member.name,
-      resetUrl,
-    });
+    try {
+      await this.passwordResetMailService.sendPasswordResetEmail({
+        to: member.email,
+        name: member.name,
+        resetUrl,
+      });
+    } catch {
+      throw new ServiceUnavailableException(
+        'Sifre sifirlama e-postasi gonderilemedi. SMTP ayarlarini kontrol edin',
+      );
+    }
 
     return { ok: true };
   }

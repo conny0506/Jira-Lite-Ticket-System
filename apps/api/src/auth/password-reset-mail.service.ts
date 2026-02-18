@@ -21,6 +21,9 @@ export class PasswordResetMailService {
       port,
       secure,
       auth: { user, pass },
+      connectionTimeout: Number(process.env.SMTP_CONNECTION_TIMEOUT_MS ?? 10000),
+      greetingTimeout: Number(process.env.SMTP_GREETING_TIMEOUT_MS ?? 10000),
+      socketTimeout: Number(process.env.SMTP_SOCKET_TIMEOUT_MS ?? 15000),
     });
   }
 
@@ -37,26 +40,31 @@ export class PasswordResetMailService {
       throw new Error('Email service is not configured');
     }
 
-    await transport.sendMail({
-      from,
-      to: params.to,
-      subject: 'Jira-lite sifre sifirlama baglantisi',
-      text: [
-        `Merhaba ${params.name},`,
-        '',
-        'Sifrenizi sifirlamak icin asagidaki baglantiyi acin:',
-        params.resetUrl,
-        '',
-        'Bu baglanti sinirli sure gecerlidir.',
-        'Eger bu islemi siz istemediyseniz bu e-postayi yok sayin.',
-      ].join('\n'),
-      html: `
-        <p>Merhaba ${params.name},</p>
-        <p>Sifrenizi sifirlamak icin asagidaki baglantiyi acin:</p>
-        <p><a href="${params.resetUrl}">${params.resetUrl}</a></p>
-        <p>Bu baglanti sinirli sure gecerlidir.</p>
-        <p>Eger bu islemi siz istemediyseniz bu e-postayi yok sayin.</p>
-      `,
-    });
+    try {
+      await transport.sendMail({
+        from,
+        to: params.to,
+        subject: 'Jira-lite sifre sifirlama baglantisi',
+        text: [
+          `Merhaba ${params.name},`,
+          '',
+          'Sifrenizi sifirlamak icin asagidaki baglantiyi acin:',
+          params.resetUrl,
+          '',
+          'Bu baglanti sinirli sure gecerlidir.',
+          'Eger bu islemi siz istemediyseniz bu e-postayi yok sayin.',
+        ].join('\n'),
+        html: `
+          <p>Merhaba ${params.name},</p>
+          <p>Sifrenizi sifirlamak icin asagidaki baglantiyi acin:</p>
+          <p><a href="${params.resetUrl}">${params.resetUrl}</a></p>
+          <p>Bu baglanti sinirli sure gecerlidir.</p>
+          <p>Eger bu islemi siz istemediyseniz bu e-postayi yok sayin.</p>
+        `,
+      });
+    } catch (error) {
+      this.logger.error(`Password reset e-mail gonderilemedi: ${(error as Error).message}`);
+      throw new Error('Password reset e-mail could not be sent');
+    }
   }
 }

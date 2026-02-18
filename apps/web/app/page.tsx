@@ -64,6 +64,7 @@ type IntroStage = 'none' | 'terminal' | 'quote';
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 const TYPEWRITER_CHARS_PER_SECOND = 120;
 const QUOTE_ROTATE_MS = 5000;
+const FORGOT_PASSWORD_TIMEOUT_MS = 15000;
 const NETWORK_ERROR_MESSAGE = 'Sunucuya ulasilamadi. Lutfen baglantiyi ve API adresini kontrol edin.';
 const MAX_UPLOAD_SIZE_BYTES = 25 * 1024 * 1024;
 const ALLOWED_UPLOAD_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'ppt', 'pptx']);
@@ -839,18 +840,26 @@ export default function HomePage() {
     }
     try {
       setIsSendingResetLink(true);
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), FORGOT_PASSWORD_TIMEOUT_MS);
       const res = await fetch(`${API_URL}/auth/forgot-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
+        signal: controller.signal,
       });
+      clearTimeout(timer);
       if (!res.ok) throw new Error(await extractErrorMessage(res));
       setForgotEmail('');
       setIsForgotMode(false);
       showToast('success', 'Sifre sifirlama baglantisi gonderildi');
     } catch (e) {
       const message =
-        e instanceof TypeError ? NETWORK_ERROR_MESSAGE : (e as Error).message;
+        e instanceof DOMException && e.name === 'AbortError'
+          ? 'Sifre sifirlama istegi zaman asimina ugradi. SMTP ayarlarini kontrol edin.'
+          : e instanceof TypeError
+            ? NETWORK_ERROR_MESSAGE
+            : (e as Error).message;
       setError(message);
     } finally {
       setIsSendingResetLink(false);

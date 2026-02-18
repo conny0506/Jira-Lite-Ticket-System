@@ -507,6 +507,10 @@ body::before {
   gap: 8px;
 }
 
+.forgotForm {
+  margin-top: 10px;
+}
+
 input,
 textarea,
 select,
@@ -565,6 +569,35 @@ button:active {
 button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.textBtn {
+  margin-top: 8px;
+  background: transparent;
+  border: 1px dashed rgba(110, 200, 255, 0.45);
+  color: #9edaff;
+  font-weight: 600;
+}
+
+.textBtn:hover {
+  box-shadow: none;
+  filter: none;
+  border-color: rgba(110, 200, 255, 0.9);
+}
+
+.successBox {
+  margin: 0;
+  border-radius: 10px;
+  border: 1px solid rgba(40, 210, 160, 0.45);
+  background: rgba(40, 210, 160, 0.12);
+  color: #d7fff1;
+  padding: 10px 12px;
+}
+
+.inlineLink {
+  color: #9edaff;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .projectList {

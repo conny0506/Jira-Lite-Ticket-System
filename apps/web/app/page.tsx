@@ -36,6 +36,7 @@ type Ticket = {
   projectId: string;
   title: string;
   description?: string | null;
+  createdAt?: string;
   status: TicketStatus;
   priority: TicketPriority;
   completedAt?: string | null;
@@ -57,9 +58,13 @@ type AuthBundle = {
 type CaptainTab = 'overview' | 'team' | 'tasks' | 'submissions';
 type MemberTab = 'my_tasks' | 'my_submissions' | 'timeline';
 type ToastItem = { id: number; type: 'success' | 'error'; message: string };
+type NotificationItem = ToastItem & { createdAt: string };
 type IntroStage = 'none' | 'terminal' | 'quote';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+const NETWORK_ERROR_MESSAGE = 'Sunucuya ulasilamadi. Lutfen baglantiyi ve API adresini kontrol edin.';
+const MAX_UPLOAD_SIZE_BYTES = 25 * 1024 * 1024;
+const ALLOWED_UPLOAD_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'ppt', 'pptx']);
 const STATUS_LIST: TicketStatus[] = ['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'DONE'];
 
 const STATUS_LABELS: Record<TicketStatus, string> = {
@@ -97,6 +102,14 @@ export default function HomePage() {
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [loginFieldError, setLoginFieldError] = useState('');
+  const [memberFieldError, setMemberFieldError] = useState('');
+  const [ticketFieldError, setTicketFieldError] = useState('');
+  const [uploadFieldErrors, setUploadFieldErrors] = useState<Record<string, string>>({});
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [isCreatingMember, setIsCreatingMember] = useState(false);
+  const [isCreatingTicket, setIsCreatingTicket] = useState(false);
+  const [uploadingTicketId, setUploadingTicketId] = useState<string | null>(null);
 
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -137,6 +150,16 @@ export default function HomePage() {
   const [memberTaskSearch, setMemberTaskSearch] = useState('');
   const [memberSubmissionSearch, setMemberSubmissionSearch] = useState('');
   const [toastQueue, setToastQueue] = useState<ToastItem[]>([]);
+  const [notificationHistory, setNotificationHistory] = useState<NotificationItem[]>([]);
+  const [isNotificationOpen, setIsNotificationOpen] = useState(false);
+  const [notificationFilter, setNotificationFilter] = useState<'ALL' | 'success' | 'error'>(
+    'ALL',
+  );
+  const [selectedTicketIds, setSelectedTicketIds] = useState<string[]>([]);
+  const [bulkStatus, setBulkStatus] = useState<TicketStatus>('IN_PROGRESS');
+  const [isBulkUpdating, setIsBulkUpdating] = useState(false);
+  const [captainMetricsStart, setCaptainMetricsStart] = useState('');
+  const [captainMetricsEnd, setCaptainMetricsEnd] = useState('');
   const [introStage, setIntroStage] = useState<IntroStage>('none');
   const [introQuote, setIntroQuote] = useState(SUCCESS_QUOTES[0]);
   const toastIdRef = useRef(1);
@@ -166,6 +189,15 @@ export default function HomePage() {
       t.assignees.some((x) => x.member.id === taskAssigneeFilter);
     return bySearch && byStatus && byPriority && byAssignee;
   });
+
+  const visibleTicketIds = useMemo(
+    () => filteredSelectedProjectTickets.map((t) => t.id),
+    [filteredSelectedProjectTickets],
+  );
+
+  const areAllVisibleSelected =
+    visibleTicketIds.length > 0 &&
+    visibleTicketIds.every((id) => selectedTicketIds.includes(id));
 
   const grouped = useMemo(() => {
     return STATUS_LIST.reduce(
@@ -243,6 +275,47 @@ export default function HomePage() {
     () => tickets.filter((x) => x.status !== 'DONE').length,
     [tickets],
   );
+
+  const captainTrendLast7 = useMemo(() => {
+    const start = captainMetricsStart ? new Date(`${captainMetricsStart}T00:00:00`) : null;
+    const end = captainMetricsEnd ? new Date(`${captainMetricsEnd}T23:59:59.999`) : null;
+    const days: Date[] = [];
+    if (start && end && start <= end) {
+      const cursor = new Date(start);
+      while (cursor <= end && days.length < 31) {
+        days.push(new Date(cursor));
+        cursor.setDate(cursor.getDate() + 1);
+      }
+    } else {
+      for (let idx = 0; idx < 7; idx += 1) {
+        const d = new Date();
+        d.setHours(0, 0, 0, 0);
+        d.setDate(d.getDate() - (6 - idx));
+        days.push(d);
+      }
+    }
+    return days.map((day) => {
+      const key = day.toISOString().slice(0, 10);
+      const doneCount = tickets.filter((t) => {
+        if (t.status !== 'DONE' || !t.completedAt) return false;
+        return t.completedAt.slice(0, 10) === key;
+      }).length;
+      return { key, label: day.toLocaleDateString('tr-TR', { weekday: 'short' }), doneCount };
+    });
+  }, [tickets, captainMetricsStart, captainMetricsEnd]);
+
+  const captainCriticalTickets = useMemo(
+    () =>
+      tickets
+        .filter((t) => t.status !== 'DONE' && t.priority === 'CRITICAL')
+        .slice(0, 5),
+    [tickets],
+  );
+
+  const filteredNotificationHistory = useMemo(() => {
+    if (notificationFilter === 'ALL') return notificationHistory;
+    return notificationHistory.filter((n) => n.type === notificationFilter);
+  }, [notificationFilter, notificationHistory]);
 
   const introInsights = useMemo(() => {
     if (!currentUser) return [] as string[];
@@ -383,10 +456,19 @@ export default function HomePage() {
   }
 
   function showToast(type: 'success' | 'error', message: string) {
+    const item = {
+      id: toastIdRef.current++,
+      type,
+      message,
+    };
     setToastQueue((prev) => [
       ...prev,
-      { id: toastIdRef.current++, type, message },
+      item,
     ]);
+    setNotificationHistory((prev) => [
+      { ...item, createdAt: new Date().toISOString() },
+      ...prev,
+    ].slice(0, 50));
   }
 
   useEffect(() => {
@@ -396,33 +478,101 @@ export default function HomePage() {
     }, 2400);
     return () => clearTimeout(timer);
   }, [toastQueue]);
+  function parseApiMessage(raw: unknown) {
+    if (!raw) return '';
+    if (typeof raw === 'string') return raw;
+    if (typeof raw === 'object' && raw !== null) {
+      const value = raw as { message?: unknown; errors?: unknown };
+      if (Array.isArray(value.message)) {
+        return value.message.filter((x) => typeof x === 'string').join(', ');
+      }
+      if (typeof value.message === 'string') return value.message;
+      if (Array.isArray(value.errors)) {
+        return value.errors.filter((x) => typeof x === 'string').join(', ');
+      }
+    }
+    return '';
+  }
+
+  async function extractErrorMessage(res: Response) {
+    const contentType = res.headers.get('content-type') ?? '';
+    if (contentType.includes('application/json')) {
+      try {
+        const data = await res.json();
+        return parseApiMessage(data) || `Istek basarisiz (${res.status})`;
+      } catch {
+        return `Istek basarisiz (${res.status})`;
+      }
+    }
+    const text = await res.text();
+    return text || `Istek basarisiz (${res.status})`;
+  }
+
+  function assertRoleAccess(path: string, method: string) {
+    if (isCaptain) return;
+    const upperMethod = method.toUpperCase();
+    if (upperMethod === 'GET') return;
+
+    if (path.startsWith('/team-members')) {
+      throw new Error('Bu islem icin kaptan yetkisi gerekir.');
+    }
+    if (path === '/tickets' && upperMethod === 'POST') {
+      throw new Error('Gorev olusturma sadece kaptan icindir.');
+    }
+    if (/^\/tickets\/[^/]+\/assignee$/.test(path) && upperMethod === 'PATCH') {
+      throw new Error('Atama islemi sadece kaptan icindir.');
+    }
+    if (path === '/tickets/bulk/status' && upperMethod === 'PATCH') {
+      throw new Error('Toplu guncelleme sadece kaptan icindir.');
+    }
+    if (/^\/tickets\/[^/]+$/.test(path) && upperMethod === 'DELETE') {
+      throw new Error('Gorev silme sadece kaptan icindir.');
+    }
+    if (path.startsWith('/projects') && upperMethod !== 'GET') {
+      throw new Error('Proje yonetimi sadece kaptan icindir.');
+    }
+  }
 
   async function refreshAuthToken() {
-    setRefreshingToken(true);
-    const res = await fetch(`${API_URL}/auth/refresh`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({}),
-    });
-    if (!res.ok) {
+    try {
+      setRefreshingToken(true);
+      const res = await fetch(`${API_URL}/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) {
+        throw new Error(await extractErrorMessage(res));
+      }
+      const next = (await res.json()) as AuthBundle;
+      localStorage.setItem('jira_auth', JSON.stringify(next));
+      setAuthBundle(next);
+      return next;
+    } catch (error) {
+      if (error instanceof TypeError) {
+        throw new Error(NETWORK_ERROR_MESSAGE);
+      }
+      throw error;
+    } finally {
       setRefreshingToken(false);
-      throw new Error(await res.text());
     }
-    const next = (await res.json()) as AuthBundle;
-    localStorage.setItem('jira_auth', JSON.stringify(next));
-    setAuthBundle(next);
-    setRefreshingToken(false);
-    return next;
   }
 
   async function apiFetch(path: string, init?: RequestInit, retried = false) {
     if (!authBundle) throw new Error('Login required');
+    const method = init?.method ?? 'GET';
+    assertRoleAccess(path, method);
     const headers: Record<string, string> = {
       Authorization: `Bearer ${authBundle.accessToken}`,
       ...(init?.headers ? (init.headers as Record<string, string>) : {}),
     };
-    const res = await fetch(`${API_URL}${path}`, { ...init, headers });
+    let res: Response;
+    try {
+      res = await fetch(`${API_URL}${path}`, { ...init, headers });
+    } catch (error) {
+      throw new Error(error instanceof TypeError ? NETWORK_ERROR_MESSAGE : String(error));
+    }
     if (res.status === 401 && !retried) {
       const next = await refreshAuthToken();
       return apiFetch(
@@ -438,9 +588,9 @@ export default function HomePage() {
       );
     }
     if (!res.ok) {
-      const text = await res.text();
-      showToast('error', text || `Request failed (${res.status})`);
-      throw new Error(text || `Request failed (${res.status})`);
+      const message = await extractErrorMessage(res);
+      showToast('error', message);
+      throw new Error(message);
     }
     if (res.status === 204) return null;
     return res.json();
@@ -460,6 +610,25 @@ export default function HomePage() {
 
   useEffect(() => {
     const cached = localStorage.getItem('jira_auth');
+    const prefs = localStorage.getItem('jira_ui_prefs');
+    if (prefs) {
+      try {
+        const parsed = JSON.parse(prefs) as {
+          captainTab?: CaptainTab;
+          memberTab?: MemberTab;
+          taskLayout?: 'board' | 'list';
+          teamRoleFilter?: 'ALL' | TeamRole;
+          taskStatusFilter?: 'ALL' | TicketStatus;
+          taskPriorityFilter?: 'ALL' | TicketPriority;
+        };
+        if (parsed.captainTab) setCaptainTab(parsed.captainTab);
+        if (parsed.memberTab) setMemberTab(parsed.memberTab);
+        if (parsed.taskLayout) setTaskLayout(parsed.taskLayout);
+        if (parsed.teamRoleFilter) setTeamRoleFilter(parsed.teamRoleFilter);
+        if (parsed.taskStatusFilter) setTaskStatusFilter(parsed.taskStatusFilter);
+        if (parsed.taskPriorityFilter) setTaskPriorityFilter(parsed.taskPriorityFilter);
+      } catch {}
+    }
     if (!cached) {
       setLoading(false);
       return;
@@ -476,6 +645,20 @@ export default function HomePage() {
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authBundle]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    if (currentUser.role === 'CAPTAIN') {
+      setMemberTab('my_tasks');
+      return;
+    }
+    setCaptainTab('overview');
+  }, [currentUser]);
+
+  useEffect(() => {
+    const validIds = new Set(tickets.map((t) => t.id));
+    setSelectedTicketIds((prev) => prev.filter((id) => validIds.has(id)));
+  }, [tickets]);
 
   useEffect(() => {
     if (!authBundle) return;
@@ -495,17 +678,47 @@ export default function HomePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authBundle, refreshingToken]);
 
+  useEffect(() => {
+    localStorage.setItem(
+      'jira_ui_prefs',
+      JSON.stringify({
+        captainTab,
+        memberTab,
+        taskLayout,
+        teamRoleFilter,
+        taskStatusFilter,
+        taskPriorityFilter,
+      }),
+    );
+  }, [
+    captainTab,
+    memberTab,
+    taskLayout,
+    teamRoleFilter,
+    taskStatusFilter,
+    taskPriorityFilter,
+  ]);
+
   async function onLogin(e: FormEvent) {
     e.preventDefault();
+    if (isLoggingIn) return;
     setError('');
+    setLoginFieldError('');
+    const email = loginEmail.trim().toLowerCase();
+    const password = loginPassword;
+    if (!email || !password) {
+      setLoginFieldError('E-posta ve sifre zorunludur');
+      return;
+    }
     try {
+      setIsLoggingIn(true);
       const res = await fetch(`${API_URL}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ email: loginEmail, password: loginPassword }),
+        body: JSON.stringify({ email, password }),
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) throw new Error(await extractErrorMessage(res));
       const bundle = (await res.json()) as AuthBundle;
       localStorage.setItem('jira_auth', JSON.stringify(bundle));
       setLoading(true);
@@ -518,7 +731,11 @@ export default function HomePage() {
       setLoginPassword('');
       showToast('success', 'Giriş başarılı');
     } catch (e) {
-      setError((e as Error).message);
+      const message =
+        e instanceof TypeError ? NETWORK_ERROR_MESSAGE : (e as Error).message;
+      setError(message);
+    } finally {
+      setIsLoggingIn(false);
     }
   }
 
@@ -547,15 +764,33 @@ export default function HomePage() {
   async function createMember(e: FormEvent) {
     e.preventDefault();
     if (!isCaptain) return;
+    if (isCreatingMember) return;
     setError('');
+    setMemberFieldError('');
+    const name = memberName.trim();
+    const email = memberEmail.trim().toLowerCase();
+    const password = memberPassword;
+    if (name.length < 2) {
+      setMemberFieldError('Uye adi en az 2 karakter olmali');
+      return;
+    }
+    if (!email.includes('@')) {
+      setMemberFieldError('Gecerli bir e-posta giriniz');
+      return;
+    }
+    if (password.length < 4) {
+      setMemberFieldError('Sifre en az 4 karakter olmali');
+      return;
+    }
     try {
+      setIsCreatingMember(true);
       await apiFetch('/team-members', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: memberName,
-          email: memberEmail,
-          password: memberPassword,
+          name,
+          email,
+          password,
           role: memberRole,
         }),
       });
@@ -567,6 +802,8 @@ export default function HomePage() {
       showToast('success', 'Üye eklendi');
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      setIsCreatingMember(false);
     }
   }
 
@@ -585,13 +822,21 @@ export default function HomePage() {
   async function createTicket(e: FormEvent) {
     e.preventDefault();
     if (!isCaptain) return;
+    if (isCreatingTicket) return;
     setError('');
+    setTicketFieldError('');
+    const title = ticketTitle.trim();
+    if (title.length < 3) {
+      setTicketFieldError('Gorev basligi en az 3 karakter olmali');
+      return;
+    }
     try {
+      setIsCreatingTicket(true);
       await apiFetch('/tickets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          title: ticketTitle,
+          title,
           description: ticketDesc || undefined,
           priority: ticketPriority,
           assigneeIds: ticketAssignees,
@@ -605,6 +850,8 @@ export default function HomePage() {
       showToast('success', 'Görev oluşturuldu');
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      setIsCreatingTicket(false);
     }
   }
 
@@ -633,6 +880,61 @@ export default function HomePage() {
       showToast('success', 'Görev silindi');
     } catch (e) {
       setError((e as Error).message);
+    }
+  }
+
+  function toggleTicketSelection(ticketId: string) {
+    setSelectedTicketIds((prev) =>
+      prev.includes(ticketId)
+        ? prev.filter((id) => id !== ticketId)
+        : [...prev, ticketId],
+    );
+  }
+
+  function toggleSelectAllVisible() {
+    if (visibleTicketIds.length === 0) return;
+    setSelectedTicketIds((prev) => {
+      if (areAllVisibleSelected) {
+        return prev.filter((id) => !visibleTicketIds.includes(id));
+      }
+      const next = new Set(prev);
+      visibleTicketIds.forEach((id) => next.add(id));
+      return Array.from(next);
+    });
+  }
+
+  async function bulkUpdateTicketStatus() {
+    if (!isCaptain || selectedTicketIds.length === 0 || isBulkUpdating) return;
+    setError('');
+    const selectedCount = selectedTicketIds.length;
+    try {
+      setIsBulkUpdating(true);
+      const result = (await apiFetch('/tickets/bulk/status', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ticketIds: selectedTicketIds,
+          status: bulkStatus,
+        }),
+      })) as {
+        updatedCount: number;
+        failedIds?: string[];
+        partial?: boolean;
+      };
+      setSelectedTicketIds([]);
+      await loadAll();
+      if (result.partial && (result.failedIds?.length ?? 0) > 0) {
+        showToast(
+          'error',
+          `${result.updatedCount}/${selectedCount} guncellendi. Basarisiz ID: ${result.failedIds!.join(', ')}`,
+        );
+      } else {
+        showToast('success', `${result.updatedCount} gorev toplu guncellendi`);
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setIsBulkUpdating(false);
     }
   }
 
@@ -704,14 +1006,39 @@ export default function HomePage() {
     }));
   }
 
+  function setUploadFieldError(ticketId: string, message: string) {
+    setUploadFieldErrors((prev) => ({ ...prev, [ticketId]: message }));
+  }
+
+  function clearUploadFieldError(ticketId: string) {
+    setUploadFieldErrors((prev) => {
+      if (!prev[ticketId]) return prev;
+      const next = { ...prev };
+      delete next[ticketId];
+      return next;
+    });
+  }
+
   async function submitFile(ticket: Ticket) {
+    if (uploadingTicketId === ticket.id) return;
     const draft = uploadDrafts[ticket.id];
+    clearUploadFieldError(ticket.id);
     if (!draft?.file || !currentUser) {
-      setError('Dosya seçmeden teslim gönderemezsin');
+      setUploadFieldError(ticket.id, 'Dosya secmeden teslim gonderemezsin');
+      return;
+    }
+    if (draft.file.size > MAX_UPLOAD_SIZE_BYTES) {
+      setUploadFieldError(ticket.id, 'Maksimum dosya boyutu 25 MB olabilir');
+      return;
+    }
+    const ext = draft.file.name.toLowerCase().split('.').pop() ?? '';
+    if (!ALLOWED_UPLOAD_EXTENSIONS.has(ext)) {
+      setUploadFieldError(ticket.id, 'Sadece PDF, DOC, DOCX, PPT, PPTX kabul edilir');
       return;
     }
     setError('');
     try {
+      setUploadingTicketId(ticket.id);
       const form = new FormData();
       form.set('submittedById', currentUser.id);
       form.set('note', draft.note);
@@ -721,10 +1048,13 @@ export default function HomePage() {
         body: form,
       });
       setUpload(ticket.id, { note: '', file: null });
+      clearUploadFieldError(ticket.id);
       await loadAll();
       showToast('success', 'Teslim gönderildi');
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      setUploadingTicketId((prev) => (prev === ticket.id ? null : prev));
     }
   }
 
@@ -825,17 +1155,26 @@ export default function HomePage() {
             <input
               placeholder="E-posta"
               value={loginEmail}
-              onChange={(e) => setLoginEmail(e.target.value)}
+              onChange={(e) => {
+                setLoginEmail(e.target.value);
+                setLoginFieldError('');
+              }}
               required
             />
             <input
               type="password"
-              placeholder="Şifre"
+              placeholder="Sifre"
               value={loginPassword}
-              onChange={(e) => setLoginPassword(e.target.value)}
+              onChange={(e) => {
+                setLoginPassword(e.target.value);
+                setLoginFieldError('');
+              }}
               required
             />
-            <button type="submit">Giriş Yap</button>
+            {loginFieldError && <p className="fieldError">{loginFieldError}</p>}
+            <button type="submit" disabled={isLoggingIn}>
+              {isLoggingIn ? 'Giris yapiliyor...' : 'Giris Yap'}
+            </button>
           </form>
         </section>
       </main>
@@ -978,6 +1317,57 @@ export default function HomePage() {
           {toastQueue[0].message}
         </p>
       )}
+      <div className="notificationBar">
+        <button
+          type="button"
+          className="notifToggle"
+          onClick={() => setIsNotificationOpen((prev) => !prev)}
+        >
+          Bildirim Merkezi ({notificationHistory.length})
+        </button>
+        {notificationHistory.length > 0 && (
+          <button
+            type="button"
+            className="notifClear"
+            onClick={() => setNotificationHistory([])}
+          >
+            Temizle
+          </button>
+        )}
+      </div>
+      {isNotificationOpen && (
+        <section className="notificationPanel panel">
+          <div className="notifHead">
+            <h3>Bildirim GeÃ§miÅŸi</h3>
+            <select
+              value={notificationFilter}
+              onChange={(e) =>
+                setNotificationFilter(e.target.value as 'ALL' | 'success' | 'error')
+              }
+            >
+              <option value="ALL">Tumu</option>
+              <option value="success">Basarili</option>
+              <option value="error">Hata</option>
+            </select>
+          </div>
+          {filteredNotificationHistory.length === 0 && (
+            <p className="muted">HenÃ¼z bildirim yok.</p>
+          )}
+          <ul className="notificationList">
+            {filteredNotificationHistory.map((item) => (
+              <li key={item.id}>
+                <span className={item.type === 'success' ? 'notifOk' : 'notifErr'}>
+                  {item.type === 'success' ? 'OK' : 'ERR'}
+                </span>
+                <div>
+                  <strong>{item.message}</strong>
+                  <p>{new Date(item.createdAt).toLocaleString('tr-TR')}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section className="workspace">
         <aside className="sidebar panel">
@@ -1051,6 +1441,43 @@ export default function HomePage() {
                 </p>
               </article>
             </div>
+            <div className="filterRow">
+              <input
+                type="date"
+                value={captainMetricsStart}
+                onChange={(e) => setCaptainMetricsStart(e.target.value)}
+                aria-label="Metrik baslangic tarihi"
+              />
+              <input
+                type="date"
+                value={captainMetricsEnd}
+                onChange={(e) => setCaptainMetricsEnd(e.target.value)}
+                aria-label="Metrik bitis tarihi"
+              />
+            </div>
+            <div className="weekChart">
+              <h3>Gorev Tamamlama Trendi</h3>
+              {captainTrendLast7.map((item) => (
+                <div key={item.key} className="weekRow">
+                  <span>{item.label}</span>
+                  <div className="weekBar">
+                    <i style={{ width: `${Math.max(8, item.doneCount * 18)}px` }} />
+                  </div>
+                  <strong>{item.doneCount}</strong>
+                </div>
+              ))}
+            </div>
+            <div className="infoCard">
+              <h3>Kritik Acik Gorevler</h3>
+              {captainCriticalTickets.length === 0 && (
+                <p className="muted">Acil gorev bulunmuyor.</p>
+              )}
+              {captainCriticalTickets.map((ticket) => (
+                <p key={ticket.id} className="muted">
+                  {ticket.title} ({STATUS_LABELS[ticket.status]})
+                </p>
+              ))}
+            </div>
             </motion.div>
           )}
 
@@ -1083,9 +1510,34 @@ export default function HomePage() {
                 </select>
               </div>
               <form onSubmit={createMember} className="formBlock">
-                <input placeholder="Ad Soyad" value={memberName} onChange={(e) => setMemberName(e.target.value)} required />
-                <input placeholder="E-posta" value={memberEmail} onChange={(e) => setMemberEmail(e.target.value)} required />
-                <input type="password" placeholder="Şifre" value={memberPassword} onChange={(e) => setMemberPassword(e.target.value)} required />
+                <input
+                  placeholder="Ad Soyad"
+                  value={memberName}
+                  onChange={(e) => {
+                    setMemberName(e.target.value);
+                    setMemberFieldError('');
+                  }}
+                  required
+                />
+                <input
+                  placeholder="E-posta"
+                  value={memberEmail}
+                  onChange={(e) => {
+                    setMemberEmail(e.target.value);
+                    setMemberFieldError('');
+                  }}
+                  required
+                />
+                <input
+                  type="password"
+                  placeholder="Sifre"
+                  value={memberPassword}
+                  onChange={(e) => {
+                    setMemberPassword(e.target.value);
+                    setMemberFieldError('');
+                  }}
+                  required
+                />
                 <select value={memberRole} onChange={(e) => setMemberRole(e.target.value as TeamRole)}>
                   {(['MEMBER', 'BOARD', 'CAPTAIN'] as TeamRole[]).map((role) => (
                     <option key={role} value={role}>
@@ -1093,7 +1545,10 @@ export default function HomePage() {
                     </option>
                   ))}
                 </select>
-                <button type="submit">Üye Ekle</button>
+                {memberFieldError && <p className="fieldError">{memberFieldError}</p>}
+                <button type="submit" disabled={isCreatingMember}>
+                  {isCreatingMember ? 'Ekleniyor...' : 'Uye Ekle'}
+                </button>
               </form>
               <ul className="memberList">
                 {filteredTeamMembers.map((m) => (
@@ -1170,10 +1625,53 @@ export default function HomePage() {
                   {taskLayout === 'board' ? 'Listeye Geç' : 'Panoya Geç'}
                 </button>
               </div>
+              <div className="bulkActionBar">
+                <span>{selectedTicketIds.length} secili</span>
+                <button
+                  type="button"
+                  onClick={toggleSelectAllVisible}
+                  disabled={visibleTicketIds.length === 0}
+                >
+                  {areAllVisibleSelected ? 'Gorunen Secimi Kaldir' : 'Gorunenleri Sec'}
+                </button>
+                <select
+                  value={bulkStatus}
+                  onChange={(e) => setBulkStatus(e.target.value as TicketStatus)}
+                >
+                  {STATUS_LIST.map((s) => (
+                    <option key={s} value={s}>
+                      {STATUS_LABELS[s]}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={bulkUpdateTicketStatus}
+                  disabled={selectedTicketIds.length === 0 || isBulkUpdating}
+                >
+                  {isBulkUpdating ? 'Guncelleniyor...' : 'Toplu Durum Guncelle'}
+                </button>
+                {selectedTicketIds.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedTicketIds([])}
+                  >
+                    Secimi Temizle
+                  </button>
+                )}
+              </div>
 
               <form onSubmit={createTicket} className="ticketForm">
-                <input placeholder="Görev başlığı" value={ticketTitle} onChange={(e) => setTicketTitle(e.target.value)} required />
-                <textarea placeholder="Açıklama" value={ticketDesc} onChange={(e) => setTicketDesc(e.target.value)} />
+                <input
+                  placeholder="Gorev basligi"
+                  value={ticketTitle}
+                  onChange={(e) => {
+                    setTicketTitle(e.target.value);
+                    setTicketFieldError('');
+                  }}
+                  required
+                />
+                <textarea placeholder="Aciklama" value={ticketDesc} onChange={(e) => setTicketDesc(e.target.value)} />
                 <select value={ticketPriority} onChange={(e) => setTicketPriority(e.target.value as TicketPriority)}>
                   <option value="LOW">{PRIORITY_LABELS.LOW}</option>
                   <option value="MEDIUM">{PRIORITY_LABELS.MEDIUM}</option>
@@ -1187,8 +1685,9 @@ export default function HomePage() {
                     </option>
                   ))}
                 </select>
-                <button type="submit">
-                  Görev Oluştur
+                {ticketFieldError && <p className="fieldError">{ticketFieldError}</p>}
+                <button type="submit" disabled={isCreatingTicket}>
+                  {isCreatingTicket ? 'Olusturuluyor...' : 'Gorev Olustur'}
                 </button>
               </form>
 
@@ -1230,6 +1729,14 @@ export default function HomePage() {
                             >
                               <span>⋮⋮</span>
                             </button>
+                            <label className="selectTicketRow">
+                              <input
+                                type="checkbox"
+                                checked={selectedTicketIds.includes(ticket.id)}
+                                onChange={() => toggleTicketSelection(ticket.id)}
+                              />
+                              <span>Sec</span>
+                            </label>
                             <strong>{ticket.title}</strong>
                             <p>{ticket.description || '-'}</p>
                             <div className="ticketMeta">
@@ -1278,6 +1785,7 @@ export default function HomePage() {
                 <table className="taskTable">
                   <thead>
                     <tr>
+                      <th>Sec</th>
                       <th>Başlık</th>
                       <th>Durum</th>
                       <th>Öncelik</th>
@@ -1287,6 +1795,13 @@ export default function HomePage() {
                   <tbody>
                     {filteredSelectedProjectTickets.map((ticket) => (
                       <tr key={ticket.id}>
+                        <td>
+                          <input
+                            type="checkbox"
+                            checked={selectedTicketIds.includes(ticket.id)}
+                            onChange={() => toggleTicketSelection(ticket.id)}
+                          />
+                        </td>
                         <td>{ticket.title}</td>
                         <td>{STATUS_LABELS[ticket.status]}</td>
                         <td>{PRIORITY_LABELS[ticket.priority]}</td>
@@ -1432,11 +1947,32 @@ export default function HomePage() {
                   </div>
                   <div className="submissionBox">
                     <h4>Teslim Dosyası</h4>
-                    <input type="file" accept=".pdf,.doc,.docx,.ppt,.pptx" onChange={(e) => setUpload(ticket.id, { file: e.currentTarget.files && e.currentTarget.files[0] ? e.currentTarget.files[0] : null })} />
+                    <input
+                      type="file"
+                      accept=".pdf,.doc,.docx,.ppt,.pptx"
+                      onChange={(e) =>
+                        setUpload(ticket.id, {
+                          file:
+                            e.currentTarget.files && e.currentTarget.files[0]
+                              ? e.currentTarget.files[0]
+                              : null,
+                        })
+                      }
+                      disabled={uploadingTicketId === ticket.id}
+                    />
                     <input placeholder="Not" value={uploadDrafts[ticket.id]?.note ?? ''} onChange={(e) => setUpload(ticket.id, { note: e.target.value })} />
-                    <button type="button" onClick={() => submitFile(ticket)}>
-                      Teslim Gönder
+                    <button
+                      type="button"
+                      onClick={() => submitFile(ticket)}
+                      disabled={uploadingTicketId === ticket.id}
+                    >
+                      {uploadingTicketId === ticket.id
+                        ? 'Gonderiliyor...'
+                        : 'Teslim Gonder'}
                     </button>
+                    {uploadFieldErrors[ticket.id] && (
+                      <p className="fieldError">{uploadFieldErrors[ticket.id]}</p>
+                    )}
                   </div>
                 </article>
               ))}
@@ -1502,3 +2038,17 @@ export default function HomePage() {
     </main>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+

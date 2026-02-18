@@ -8,3 +8,5 @@ coverage/
 .env.local
 .env.*.local
 apps/api/prisma/migrations/
+gerekli_bilgiler.txt
+gerekli_bilgiler.local.txt

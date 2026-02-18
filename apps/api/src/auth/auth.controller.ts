@@ -9,21 +9,18 @@ import {
   Res,
   UnauthorizedException,
 } from '@nestjs/common';
+import { AuthRateLimitService } from './auth-rate-limit.service';
 import { AuthService } from './auth.service';
 import { CurrentUserId } from './current-user-id.decorator';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 
-type RateEntry = {
-  count: number;
-  resetAt: number;
-};
-
 @Controller('auth')
 export class AuthController {
-  private static readonly rateStore = new Map<string, RateEntry>();
-
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly authRateLimitService: AuthRateLimitService,
+  ) {}
 
   private getCookieOptions() {
     const isProd = process.env.NODE_ENV === 'production';
@@ -68,9 +65,8 @@ export class AuthController {
     return xff || xri || req.ip || req.socket?.remoteAddress || 'unknown';
   }
 
-  private enforceRateLimit(req: any, action: 'login' | 'refresh') {
+  private async enforceRateLimit(req: any, action: 'login' | 'refresh') {
     const ip = this.readClientIp(req);
-    const now = Date.now();
     const isLogin = action === 'login';
     const limit = Number(
       process.env[isLogin ? 'AUTH_LOGIN_RATE_LIMIT_MAX' : 'AUTH_REFRESH_RATE_LIMIT_MAX'] ??
@@ -83,26 +79,23 @@ export class AuthController {
           : 'AUTH_REFRESH_RATE_LIMIT_WINDOW_SECONDS'
       ] ?? (isLogin ? 60 : 300),
     );
-    const windowMs = windowSeconds * 1000;
-    const key = `${action}:${ip}`;
-    const current = AuthController.rateStore.get(key);
-    if (!current || current.resetAt <= now) {
-      AuthController.rateStore.set(key, { count: 1, resetAt: now + windowMs });
-      return;
-    }
-    if (current.count >= limit) {
+    const result = await this.authRateLimitService.increment(
+      action,
+      ip,
+      limit,
+      windowSeconds,
+    );
+    if (!result.allowed) {
       throw new HttpException(
         'Cok fazla istek gonderildi, lutfen tekrar deneyin',
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }
-    current.count += 1;
-    AuthController.rateStore.set(key, current);
   }
 
   @Post('login')
   async login(@Req() req: any, @Body() dto: LoginDto, @Res({ passthrough: true }) res: any) {
-    this.enforceRateLimit(req, 'login');
+    await this.enforceRateLimit(req, 'login');
     const result = await this.authService.login(dto.email, dto.password);
     res.cookie('jid', result.refreshToken, this.getCookieOptions());
     return {
@@ -123,7 +116,7 @@ export class AuthController {
     @Body() dto: RefreshTokenDto,
     @Res({ passthrough: true }) res: any,
   ) {
-    this.enforceRateLimit(req, 'refresh');
+    await this.enforceRateLimit(req, 'refresh');
     const refreshToken = this.readRefreshToken(req, dto);
     if (!refreshToken) throw new UnauthorizedException('Yenileme anahtari zorunludur');
     const result = await this.authService.refresh(refreshToken);

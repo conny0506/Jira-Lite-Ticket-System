@@ -17,6 +17,7 @@ import { CurrentUserId } from '../auth/current-user-id.decorator';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { TicketsService } from './tickets.service';
 import { CreateSubmissionDto } from './dto/create-submission.dto';
+import { BulkUpdateTicketStatusDto } from './dto/bulk-update-ticket-status.dto';
 import { UpdateTicketAssigneeDto } from './dto/update-ticket-assignee.dto';
 import { UpdateTicketStatusDto } from './dto/update-ticket-status.dto';
 
@@ -35,6 +36,14 @@ export class TicketsController {
   @Post()
   create(@CurrentUserId() actorId: string, @Body() dto: CreateTicketDto) {
     return this.ticketsService.create(actorId, dto);
+  }
+
+  @Patch('bulk/status')
+  bulkUpdateStatus(
+    @CurrentUserId() actorId: string,
+    @Body() dto: BulkUpdateTicketStatusDto,
+  ) {
+    return this.ticketsService.bulkUpdateStatus(actorId, dto);
   }
 
   @Patch(':id/status')
@@ -66,7 +75,11 @@ export class TicketsController {
   }
 
   @Post(':id/submissions')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: 25 * 1024 * 1024 },
+    }),
+  )
   uploadSubmission(
     @CurrentUserId() actorId: string,
     @Param('id') id: string,

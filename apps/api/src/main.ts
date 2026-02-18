@@ -1,4 +1,5 @@
 import { BadRequestException, ValidationPipe } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { NestFactory } from '@nestjs/core';
 import { ValidationError } from 'class-validator';
 import helmet from 'helmet';
@@ -30,6 +31,43 @@ function mapValidationError(error: ValidationError): string[] {
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  const logFormat = (process.env.LOG_FORMAT ?? 'json').toLowerCase();
+  app.use((req: any, res: any, next: () => void) => {
+    const requestId =
+      (req.headers?.['x-request-id'] as string | undefined)?.trim() || randomUUID();
+    req.requestId = requestId;
+    res.setHeader('x-request-id', requestId);
+    const startedAt = Date.now();
+    res.on('finish', () => {
+      const elapsedMs = Date.now() - startedAt;
+      if (logFormat === 'text') {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[${requestId}] ${req.method} ${req.originalUrl || req.url} ${res.statusCode} ${elapsedMs}ms`,
+        );
+        return;
+      }
+      // eslint-disable-next-line no-console
+      console.log(
+        JSON.stringify({
+          level: 'info',
+          event: 'http_request',
+          requestId,
+          method: req.method,
+          path: req.originalUrl || req.url,
+          statusCode: res.statusCode,
+          durationMs: elapsedMs,
+          ip:
+            req.ip ||
+            req.headers?.['x-forwarded-for'] ||
+            req.socket?.remoteAddress ||
+            'unknown',
+          userAgent: req.headers?.['user-agent'] ?? '',
+        }),
+      );
+    });
+    next();
+  });
   const trustProxy =
     (process.env.TRUST_PROXY ?? (process.env.NODE_ENV === 'production' ? 'true' : 'false'))
       .toLowerCase()

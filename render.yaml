@@ -37,6 +37,10 @@ services:
         value: "60"
       - key: AUTH_REFRESH_RATE_LIMIT_WINDOW_SECONDS
         value: "300"
+      - key: AUTH_RATE_LIMIT_USE_REDIS
+        value: "true"
+      - key: LOG_FORMAT
+        value: json
       - key: ONE_SESSION_PER_USER
         value: "true"
       - key: COOKIE_SAME_SITE

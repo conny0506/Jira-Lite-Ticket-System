@@ -41,6 +41,7 @@ type Ticket = {
   status: TicketStatus;
   priority: TicketPriority;
   completedAt?: string | null;
+  reviewNote?: string | null;
   assignees: Array<{ member: TeamMember; seenAt?: string | null }>;
   submissions: Submission[];
 };
@@ -154,11 +155,13 @@ export default function HomePage() {
   const [isBoardDragging, setIsBoardDragging] = useState(false);
   const [dropPulseTicketId, setDropPulseTicketId] = useState<string | null>(null);
   const [submissionSearch, setSubmissionSearch] = useState('');
-  const [submissionByFilter, setSubmissionByFilter] = useState<'ALL' | string>('ALL');
   const [submissionProjectFilter, setSubmissionProjectFilter] =
     useState<'ALL' | string>('ALL');
   const [submissionStartDate, setSubmissionStartDate] = useState('');
   const [submissionEndDate, setSubmissionEndDate] = useState('');
+  const [captainMemberFocusId, setCaptainMemberFocusId] = useState('');
+  const [reviewReasons, setReviewReasons] = useState<Record<string, string>>({});
+  const [reviewingTicketId, setReviewingTicketId] = useState<string | null>(null);
   const [memberTaskSearch, setMemberTaskSearch] = useState('');
   const [memberSubmissionSearch, setMemberSubmissionSearch] = useState('');
   const [toastQueue, setToastQueue] = useState<ToastItem[]>([]);
@@ -195,13 +198,12 @@ export default function HomePage() {
       search.length === 0 ||
       t.title.toLowerCase().includes(search) ||
       (t.description ?? '').toLowerCase().includes(search);
-    const byStatus = taskStatusFilter === 'ALL' || t.status === taskStatusFilter;
     const byPriority =
       taskPriorityFilter === 'ALL' || t.priority === taskPriorityFilter;
     const byAssignee =
       taskAssigneeFilter === 'ALL' ||
       t.assignees.some((x) => x.member.id === taskAssigneeFilter);
-    return bySearch && byStatus && byPriority && byAssignee;
+    return bySearch && byPriority && byAssignee;
   });
 
   const visibleTicketIds = useMemo(
@@ -473,41 +475,71 @@ export default function HomePage() {
     return introTerminalLines[lineIndex].slice(0, visibleChars);
   };
 
-  const filteredSubmissions = allSubmissions.filter(({ submission, ticket }) => {
-    const byName = submission.fileName
-      .toLowerCase()
-      .includes(submissionSearch.toLowerCase());
-    const byUser =
-      submissionByFilter === 'ALL' || submission.submittedBy.id === submissionByFilter;
-    const byProject =
-      submissionProjectFilter === 'ALL' || ticket.projectId === submissionProjectFilter;
-    const createdAtMs = new Date(submission.createdAt).getTime();
-    const byStart =
-      !submissionStartDate ||
-      createdAtMs >= new Date(`${submissionStartDate}T00:00:00`).getTime();
-    const byEnd =
-      !submissionEndDate ||
-      createdAtMs <= new Date(`${submissionEndDate}T23:59:59.999`).getTime();
-    return byName && byUser && byProject && byStart && byEnd;
-  });
+  const captainMemberPages = useMemo(
+    () => teamMembers.filter((member) => member.active),
+    [teamMembers],
+  );
 
-  const submissionWeeklyStats = useMemo(() => {
-    const bucket = new Map<string, number>();
-    filteredSubmissions.forEach(({ submission }) => {
-      const d = new Date(submission.createdAt);
-      const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-      const dayNum = date.getUTCDay() || 7;
-      date.setUTCDate(date.getUTCDate() + 4 - dayNum);
-      const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
-      const weekNo = Math.ceil((((date.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
-      const weekKey = `${date.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
-      bucket.set(weekKey, (bucket.get(weekKey) ?? 0) + 1);
-    });
-    return Array.from(bucket.entries())
-      .map(([week, count]) => ({ week, count }))
-      .sort((a, b) => a.week.localeCompare(b.week))
-      .slice(-8);
-  }, [filteredSubmissions]);
+  const captainFocusedMember = useMemo(
+    () => captainMemberPages.find((member) => member.id === captainMemberFocusId) ?? null,
+    [captainMemberPages, captainMemberFocusId],
+  );
+
+  const captainMemberTickets = useMemo(() => {
+    if (!captainFocusedMember) return [] as Ticket[];
+    const search = submissionSearch.trim().toLowerCase();
+    return tickets
+      .filter((ticket) =>
+        ticket.assignees.some((assignment) => assignment.member.id === captainFocusedMember.id),
+      )
+      .filter((ticket) => {
+        const latestSubmission = ticket.submissions
+          .slice()
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+        if (!latestSubmission) return false;
+        const bySearch =
+          search.length === 0 ||
+          ticket.title.toLowerCase().includes(search) ||
+          (ticket.description ?? '').toLowerCase().includes(search) ||
+          latestSubmission.fileName.toLowerCase().includes(search);
+        const byProject =
+          submissionProjectFilter === 'ALL' || ticket.projectId === submissionProjectFilter;
+        const refMs = new Date(latestSubmission.createdAt).getTime();
+        const byStart =
+          !submissionStartDate ||
+          refMs >= new Date(`${submissionStartDate}T00:00:00`).getTime();
+        const byEnd =
+          !submissionEndDate ||
+          refMs <= new Date(`${submissionEndDate}T23:59:59.999`).getTime();
+        return bySearch && byProject && byStart && byEnd;
+      })
+      .sort((a, b) => {
+        const aMs = Math.max(
+          ...a.submissions.map((submission) => new Date(submission.createdAt).getTime()),
+        );
+        const bMs = Math.max(
+          ...b.submissions.map((submission) => new Date(submission.createdAt).getTime()),
+        );
+        return bMs - aMs;
+      });
+  }, [
+    captainFocusedMember,
+    submissionSearch,
+    submissionProjectFilter,
+    submissionStartDate,
+    submissionEndDate,
+    tickets,
+  ]);
+
+  const captainPendingReviewTickets = useMemo(
+    () => captainMemberTickets.filter((ticket) => ticket.status === 'IN_REVIEW'),
+    [captainMemberTickets],
+  );
+
+  const captainArchivedTickets = useMemo(
+    () => captainMemberTickets.filter((ticket) => ticket.status === 'DONE'),
+    [captainMemberTickets],
+  );
 
   function getFileTypeLabel(fileName: string) {
     const ext = fileName.toLowerCase().split('.').pop() ?? '';
@@ -716,6 +748,17 @@ export default function HomePage() {
     }
     setCaptainTab('overview');
   }, [currentUser]);
+
+  useEffect(() => {
+    if (captainMemberPages.length === 0) {
+      setCaptainMemberFocusId('');
+      return;
+    }
+    const exists = captainMemberPages.some((member) => member.id === captainMemberFocusId);
+    if (!exists) {
+      setCaptainMemberFocusId(captainMemberPages[0].id);
+    }
+  }, [captainMemberPages, captainMemberFocusId]);
 
   useEffect(() => {
     const validIds = new Set(tickets.map((t) => t.id));
@@ -1182,59 +1225,53 @@ export default function HomePage() {
     }
   }
 
-  function exportSubmissionsCsv() {
-    const rows = filteredSubmissions.map(({ submission, ticket }) => {
-      const projectKey = projects.find((p) => p.id === ticket.projectId)?.key ?? '-';
-      return {
-        createdAt: new Date(submission.createdAt).toISOString(),
-        project: projectKey,
-        ticket: ticket.title,
-        fileName: submission.fileName,
-        submittedBy: submission.submittedBy.name,
-        role: ROLE_LABELS[submission.submittedBy.role],
-        note: submission.note ?? '',
-      };
-    });
-    if (rows.length === 0) {
-      showToast('error', 'Dışa aktarma için teslim kaydı bulunamadı');
+  function getLatestSubmission(ticket: Ticket) {
+    return (
+      ticket.submissions
+        .slice()
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0] ??
+      null
+    );
+  }
+
+  function setReviewReason(ticketId: string, value: string) {
+    setReviewReasons((prev) => ({ ...prev, [ticketId]: value }));
+  }
+
+  async function reviewTicket(ticket: Ticket, action: 'APPROVE' | 'REJECT') {
+    if (!isCaptain || reviewingTicketId === ticket.id) return;
+    const reason = (reviewReasons[ticket.id] ?? '').trim();
+    if (action === 'REJECT' && reason.length < 3) {
+      setError('Teslim ret icin en az 3 karakter aciklama gir');
       return;
     }
-    const escapeCsv = (value: string) => `"${value.replace(/"/g, '""')}"`;
-    const header = [
-      'created_at',
-      'project',
-      'ticket',
-      'file_name',
-      'submitted_by',
-      'role',
-      'note',
-    ];
-    const body = rows.map((r) =>
-      [
-        r.createdAt,
-        r.project,
-        r.ticket,
-        r.fileName,
-        r.submittedBy,
-        r.role,
-        r.note,
-      ]
-        .map((cell) => escapeCsv(String(cell)))
-        .join(','),
-    );
-    const csv = [header.join(','), ...body].join('\n');
-    const blob = new Blob([`\uFEFF${csv}`], {
-      type: 'text/csv;charset=utf-8;',
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `submissions-${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-    showToast('success', 'CSV dışa aktarma hazırlandı');
+    setError('');
+    try {
+      setReviewingTicketId(ticket.id);
+      await apiFetch(`/tickets/${ticket.id}/review`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action,
+          ...(action === 'REJECT' ? { reason } : {}),
+        }),
+      });
+      setReviewReasons((prev) => {
+        if (!prev[ticket.id]) return prev;
+        const next = { ...prev };
+        delete next[ticket.id];
+        return next;
+      });
+      await loadAll();
+      showToast(
+        'success',
+        action === 'APPROVE' ? 'Teslim onaylandi ve arsive alindi' : 'Teslim reddedildi ve gorev geri acildi',
+      );
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setReviewingTicketId((prev) => (prev === ticket.id ? null : prev));
+    }
   }
 
   async function downloadSubmission(submission: Submission) {
@@ -1507,7 +1544,7 @@ export default function HomePage() {
                 <button type="button" className={captainTab === 'overview' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('overview')}><span>Genel</span>{captainTab === 'overview' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
                 <button type="button" className={captainTab === 'team' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('team')}><span>Takım</span>{captainTab === 'team' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
                 <button type="button" className={captainTab === 'tasks' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('tasks')}><span>Görevler</span>{captainTab === 'tasks' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
-                <button type="button" className={captainTab === 'submissions' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('submissions')}><span>Teslimler</span>{captainTab === 'submissions' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                <button type="button" className={captainTab === 'submissions' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('submissions')}><span>Kisi Sayfalari</span>{captainTab === 'submissions' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
               </div>
             </LayoutGroup>
           ) : (
@@ -1690,7 +1727,7 @@ export default function HomePage() {
             </motion.div>
           )}
 
-          {!loading && isCaptain && captainTab === 'tasks' && (
+                    {!loading && isCaptain && captainTab === 'tasks' && (
             <motion.div
               key="captain-tasks"
               className="tabScene"
@@ -1701,30 +1738,17 @@ export default function HomePage() {
             >
               <div className="filterRow">
                 <input
-                  placeholder="Görev ara"
+                  placeholder="Gorev ara"
                   value={taskSearch}
                   onChange={(e) => setTaskSearch(e.target.value)}
                 />
-                <select
-                  value={taskStatusFilter}
-                  onChange={(e) =>
-                    setTaskStatusFilter(e.target.value as 'ALL' | TicketStatus)
-                  }
-                >
-                  <option value="ALL">Tüm Durumlar</option>
-                  {STATUS_LIST.map((s) => (
-                    <option key={s} value={s}>
-                      {STATUS_LABELS[s]}
-                    </option>
-                  ))}
-                </select>
                 <select
                   value={taskPriorityFilter}
                   onChange={(e) =>
                     setTaskPriorityFilter(e.target.value as 'ALL' | TicketPriority)
                   }
                 >
-                  <option value="ALL">Tüm Öncelikler</option>
+                  <option value="ALL">Tum Oncelikler</option>
                   <option value="LOW">{PRIORITY_LABELS.LOW}</option>
                   <option value="MEDIUM">{PRIORITY_LABELS.MEDIUM}</option>
                   <option value="HIGH">{PRIORITY_LABELS.HIGH}</option>
@@ -1734,54 +1758,13 @@ export default function HomePage() {
                   value={taskAssigneeFilter}
                   onChange={(e) => setTaskAssigneeFilter(e.target.value)}
                 >
-                  <option value="ALL">Tüm Atananlar</option>
+                  <option value="ALL">Tum Atananlar</option>
                   {teamMembers.map((m) => (
                     <option key={m.id} value={m.id}>
                       {m.name}
                     </option>
                   ))}
                 </select>
-              </div>
-              <div className="panelHead">
-                <h2>Görevler</h2>
-                <button type="button" className={taskLayout === 'board' ? 'tabBtn active' : 'tabBtn'} onClick={() => setTaskLayout(taskLayout === 'board' ? 'list' : 'board')}>
-                  {taskLayout === 'board' ? 'Listeye Geç' : 'Panoya Geç'}
-                </button>
-              </div>
-              <div className="bulkActionBar">
-                <span>{selectedTicketIds.length} secili</span>
-                <button
-                  type="button"
-                  onClick={toggleSelectAllVisible}
-                  disabled={visibleTicketIds.length === 0}
-                >
-                  {areAllVisibleSelected ? 'Gorunen Secimi Kaldir' : 'Gorunenleri Sec'}
-                </button>
-                <select
-                  value={bulkStatus}
-                  onChange={(e) => setBulkStatus(e.target.value as TicketStatus)}
-                >
-                  {STATUS_LIST.map((s) => (
-                    <option key={s} value={s}>
-                      {STATUS_LABELS[s]}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={bulkUpdateTicketStatus}
-                  disabled={selectedTicketIds.length === 0 || isBulkUpdating}
-                >
-                  {isBulkUpdating ? 'Guncelleniyor...' : 'Toplu Durum Guncelle'}
-                </button>
-                {selectedTicketIds.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setSelectedTicketIds([])}
-                  >
-                    Secimi Temizle
-                  </button>
-                )}
               </div>
 
               <form onSubmit={createTicket} className="ticketForm">
@@ -1814,136 +1797,41 @@ export default function HomePage() {
                 </button>
               </form>
 
-              {taskLayout === 'board' ? (
-                <div className={isBoardDragging ? 'columns draggingMode' : 'columns'}>
-                  {STATUS_LIST.map((status) => (
-                    <section
-                      key={status}
-                      className={dragOverStatus === status ? 'column columnDrop' : 'column'}
-                      onDragOver={(e) => onColumnDragOver(e, status)}
-                      onDragLeave={() =>
-                        setDragOverStatus((prev) => (prev === status ? null : prev))
-                      }
-                      onDrop={(e) => onColumnDrop(e, status)}
-                    >
-                      <header>
-                        <h3>{STATUS_LABELS[status]}</h3>
-                        <span>{grouped[status].length}</span>
-                      </header>
-                      <div className="ticketStack">
-                        {grouped[status].map((ticket) => (
-                          <article
-                            key={ticket.id}
-                            className={[
-                              'ticketCard',
-                              dragTicketId === ticket.id ? 'dragging' : '',
-                              dropPulseTicketId === ticket.id ? 'dropPulse' : '',
-                            ]
-                              .join(' ')
-                              .trim()}
-                          >
-                            <button
-                              type="button"
-                              className="dragHandle"
-                              draggable
-                              onDragStart={() => onBoardDragStart(ticket.id)}
-                              onDragEnd={onBoardDragEnd}
-                              title="Durum değiştirmek için sürükle"
-                            >
-                              <span>⋮⋮</span>
-                            </button>
-                            <label className="selectTicketRow">
-                              <input
-                                type="checkbox"
-                                checked={selectedTicketIds.includes(ticket.id)}
-                                onChange={() => toggleTicketSelection(ticket.id)}
-                              />
-                              <span>Sec</span>
-                            </label>
-                            <strong>{ticket.title}</strong>
-                            <p>{ticket.description || '-'}</p>
-                            <div className="ticketMeta">
-                              <span>{PRIORITY_LABELS[ticket.priority]}</span>
-                              <select value={ticket.status} onChange={(e) => moveStatus(ticket, e.target.value as TicketStatus)}>
-                                {STATUS_LIST.map((s) => (
-                                  <option key={s} value={s}>
-                                    {STATUS_LABELS[s]}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                            <div className="quickRow">
-                              <button type="button" onClick={() => moveStatus(ticket, 'IN_PROGRESS')}>
-                                Başla
-                              </button>
-                              <button type="button" onClick={() => moveStatus(ticket, 'IN_REVIEW')}>
-                                İncele
-                              </button>
-                              <button type="button" onClick={() => moveStatus(ticket, 'DONE')}>
-                                Tamamla
-                              </button>
-                            </div>
-                            <p className="muted">
-                              Atananlar:{' '}
-                              {ticket.assignees
-                                .map((x) => `${x.member.name} (${x.seenAt ? 'görüldü' : 'görülmedi'})`)
-                                .join(', ') || 'Yok'}
-                            </p>
-                            <div className="projectActions">
-                              <select multiple value={ticket.assignees.map((x) => x.member.id)} onChange={(e) => updateTicketAssignees(ticket, Array.from(e.currentTarget.selectedOptions).map((o) => o.value))}>
-                                {teamMembers.map((m) => (
-                                  <option key={m.id} value={m.id}>
-                                    {m.name}
-                                  </option>
-                                ))}
-                              </select>
-                              <button type="button" onClick={() => deleteTicket(ticket)}>
-                                Görevi Sil
-                              </button>
-                            </div>
-                          </article>
+              <div className="ticketStack">
+                {filteredSelectedProjectTickets.map((ticket) => (
+                  <article key={ticket.id} className="ticketCard">
+                    <strong>{ticket.title}</strong>
+                    <p>{ticket.description || '-'}</p>
+                    <div className="ticketMeta">
+                      <span>{PRIORITY_LABELS[ticket.priority]}</span>
+                      <span>{STATUS_LABELS[ticket.status]}</span>
+                    </div>
+                    <p className="muted">
+                      Atananlar:{' '}
+                      {ticket.assignees
+                        .map((x) => `${x.member.name} (${x.seenAt ? 'goruldu' : 'gorulmedi'})`)
+                        .join(', ') || 'Yok'}
+                    </p>
+                    <div className="projectActions">
+                      <select multiple value={ticket.assignees.map((x) => x.member.id)} onChange={(e) => updateTicketAssignees(ticket, Array.from(e.currentTarget.selectedOptions).map((o) => o.value))}>
+                        {teamMembers.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.name}
+                          </option>
                         ))}
-                      </div>
-                    </section>
-                  ))}
-                </div>
-              ) : (
-                <table className="taskTable">
-                  <thead>
-                    <tr>
-                      <th>Sec</th>
-                      <th>Başlık</th>
-                      <th>Durum</th>
-                      <th>Öncelik</th>
-                      <th>Atananlar</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredSelectedProjectTickets.map((ticket) => (
-                      <tr key={ticket.id}>
-                        <td>
-                          <input
-                            type="checkbox"
-                            checked={selectedTicketIds.includes(ticket.id)}
-                            onChange={() => toggleTicketSelection(ticket.id)}
-                          />
-                        </td>
-                        <td>{ticket.title}</td>
-                        <td>{STATUS_LABELS[ticket.status]}</td>
-                        <td>{PRIORITY_LABELS[ticket.priority]}</td>
-                        <td>
-                          {ticket.assignees
-                            .map((a) => `${a.member.name} (${a.seenAt ? 'görüldü' : 'görülmedi'})`)
-                            .join(', ')}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
+                      </select>
+                      <button type="button" onClick={() => deleteTicket(ticket)}>
+                        Gorevi Sil
+                      </button>
+                    </div>
+                  </article>
+                ))}
+                {filteredSelectedProjectTickets.length === 0 && (
+                  <p className="muted">Filtreye uygun gorev bulunamadi.</p>
+                )}
+              </div>
             </motion.div>
           )}
-
           {!loading && isCaptain && captainTab === 'submissions' && (
             <motion.div
               key="captain-submissions"
@@ -1954,27 +1842,26 @@ export default function HomePage() {
               transition={{ duration: 0.22, ease: 'easeOut' }}
             >
               <div className="filterRow">
+                <select
+                  value={captainMemberFocusId}
+                  onChange={(e) => setCaptainMemberFocusId(e.target.value)}
+                >
+                  {captainMemberPages.map((member) => (
+                    <option key={member.id} value={member.id}>
+                      {member.name}
+                    </option>
+                  ))}
+                </select>
                 <input
-                  placeholder="Dosya ara"
+                  placeholder="Teslim veya gorev ara"
                   value={submissionSearch}
                   onChange={(e) => setSubmissionSearch(e.target.value)}
                 />
                 <select
-                  value={submissionByFilter}
-                  onChange={(e) => setSubmissionByFilter(e.target.value)}
-                >
-                  <option value="ALL">Tüm Üyeler</option>
-                  {teamMembers.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name}
-                    </option>
-                  ))}
-                </select>
-                <select
                   value={submissionProjectFilter}
                   onChange={(e) => setSubmissionProjectFilter(e.target.value)}
                 >
-                  <option value="ALL">Tüm Projeler</option>
+                  <option value="ALL">Tum Projeler</option>
                   {projects.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.key}
@@ -1985,7 +1872,7 @@ export default function HomePage() {
                   type="date"
                   value={submissionStartDate}
                   onChange={(e) => setSubmissionStartDate(e.target.value)}
-                  aria-label="Başlangıç tarihi"
+                  aria-label="Baslangic tarihi"
                 />
                 <input
                   type="date"
@@ -1993,46 +1880,96 @@ export default function HomePage() {
                   onChange={(e) => setSubmissionEndDate(e.target.value)}
                   aria-label="Bitis tarihi"
                 />
-                <button type="button" onClick={exportSubmissionsCsv}>
-                  CSV Dışa Aktar
-                </button>
               </div>
-              <ul className="submissionRows">
-                {filteredSubmissions.map(({ submission, ticket }) => (
-                <li key={submission.id}>
-                  <div>
-                    <strong>{submission.fileName}</strong>
-                    <span className={`fileBadge type-${getFileTypeLabel(submission.fileName).toLowerCase()}`}>
-                      {getFileTypeLabel(submission.fileName)}
-                    </span>
-                    <p>
-                      {(projects.find((p) => p.id === ticket.projectId)?.key ?? 'ULGEN-SYSTEM')} / {ticket.title}
-                    </p>
+
+              {!captainFocusedMember && <p className="muted">Uye secimi yapilmadi.</p>}
+
+              {captainFocusedMember && (
+                <>
+                  <div className="panelHead">
+                    <h2>{captainFocusedMember.name} - Bekleyen Teslimler</h2>
                   </div>
-                  <button type="button" onClick={() => downloadSubmission(submission)}>
-                    İndir
-                  </button>
-                </li>
-                ))}
-              </ul>
-              <div className="weekChart">
-                <h3>Haftalık Teslim Sayısı</h3>
-                {submissionWeeklyStats.length === 0 && (
-                  <p className="muted">Grafik için teslim verisi yok.</p>
-                )}
-                {submissionWeeklyStats.map((item) => (
-                  <div key={item.week} className="weekRow">
-                    <span>{item.week}</span>
-                    <div className="weekBar">
-                      <i style={{ width: `${Math.max(8, item.count * 20)}px` }} />
-                    </div>
-                    <strong>{item.count}</strong>
+                  <div className="ticketStack">
+                    {captainPendingReviewTickets.map((ticket) => {
+                      const latestSubmission = getLatestSubmission(ticket);
+                      if (!latestSubmission) return null;
+                      return (
+                        <article key={ticket.id} className="ticketCard">
+                          <strong>{ticket.title}</strong>
+                          <p>{ticket.description || '-'}</p>
+                          <p className="muted">
+                            Son teslim: {new Date(latestSubmission.createdAt).toLocaleString('tr-TR')}
+                          </p>
+                          <p className="muted">
+                            Dosya: {latestSubmission.fileName}
+                            {latestSubmission.note ? ` | Aciklama: ${latestSubmission.note}` : ''}
+                          </p>
+                          <div className="quickRow">
+                            <button type="button" onClick={() => downloadSubmission(latestSubmission)}>
+                              Dosyayi Indir
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => reviewTicket(ticket, 'APPROVE')}
+                              disabled={reviewingTicketId === ticket.id}
+                            >
+                              {reviewingTicketId === ticket.id ? 'Isleniyor...' : 'Teslim onay'}
+                            </button>
+                          </div>
+                          <div className="submissionBox">
+                            <input
+                              placeholder="Teslim ret sebebi"
+                              value={reviewReasons[ticket.id] ?? ''}
+                              onChange={(e) => setReviewReason(ticket.id, e.target.value)}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => reviewTicket(ticket, 'REJECT')}
+                              disabled={reviewingTicketId === ticket.id}
+                            >
+                              Teslim ret
+                            </button>
+                          </div>
+                        </article>
+                      );
+                    })}
+                    {captainPendingReviewTickets.length === 0 && (
+                      <p className="muted">Bu uye icin bekleyen teslim yok.</p>
+                    )}
                   </div>
-                ))}
-              </div>
+
+                  <div className="panelHead">
+                    <h2>{captainFocusedMember.name} - Arsiv</h2>
+                  </div>
+                  <ul className="submissionRows">
+                    {captainArchivedTickets.map((ticket) => {
+                      const latestSubmission = getLatestSubmission(ticket);
+                      if (!latestSubmission) return null;
+                      return (
+                        <li key={ticket.id}>
+                          <div>
+                            <strong>{ticket.title}</strong>
+                            <span className={`fileBadge type-${getFileTypeLabel(latestSubmission.fileName).toLowerCase()}`}>
+                              {getFileTypeLabel(latestSubmission.fileName)}
+                            </span>
+                            <p>
+                              {latestSubmission.fileName} | Onay: {ticket.completedAt ? new Date(ticket.completedAt).toLocaleString('tr-TR') : '-'}
+                            </p>
+                          </div>
+                          <button type="button" onClick={() => downloadSubmission(latestSubmission)}>
+                            Indir
+                          </button>
+                        </li>
+                      );
+                    })}
+                    {captainArchivedTickets.length === 0 && (
+                      <p className="muted">Bu uye icin arsiv kaydi yok.</p>
+                    )}
+                  </ul>
+                </>
+              )}
             </motion.div>
           )}
-
           {!loading && !isCaptain && memberTab === 'my_tasks' && (
             <motion.div
               key="member-tasks"
@@ -2044,73 +1981,59 @@ export default function HomePage() {
             >
               <div className="filterRow">
                 <input
-                  placeholder="Görev ara"
+                  placeholder="Gorev ara"
                   value={memberTaskSearch}
                   onChange={(e) => setMemberTaskSearch(e.target.value)}
                 />
               </div>
               <div className="ticketStack">
-              {myTickets.map((ticket) => (
-                <article key={ticket.id} className="ticketCard">
-                  <strong>{ticket.title}</strong>
-                  <p>{ticket.description || '-'}</p>
-                  <div className="ticketMeta">
-                    <span>{PRIORITY_LABELS[ticket.priority]}</span>
-                    <select value={ticket.status} onChange={(e) => moveStatus(ticket, e.target.value as TicketStatus)}>
-                      {STATUS_LIST.map((s) => (
-                        <option key={s} value={s}>
-                          {STATUS_LABELS[s]}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="quickRow">
-                    <button type="button" onClick={() => moveStatus(ticket, 'IN_PROGRESS')}>
-                      Başla
-                    </button>
-                    <button type="button" onClick={() => moveStatus(ticket, 'IN_REVIEW')}>
-                      İncele
-                    </button>
-                    <button type="button" onClick={() => moveStatus(ticket, 'DONE')}>
-                      Tamamla
-                    </button>
-                  </div>
-                  <div className="submissionBox">
-                    <h4>Teslim Dosyası</h4>
-                    <input
-                      type="file"
-                      accept=".pdf,.doc,.docx,.ppt,.pptx"
-                      onChange={(e) =>
-                        setUpload(ticket.id, {
-                          file:
-                            e.currentTarget.files && e.currentTarget.files[0]
-                              ? e.currentTarget.files[0]
-                              : null,
-                        })
-                      }
-                      disabled={uploadingTicketId === ticket.id}
-                    />
-                    <input placeholder="Not" value={uploadDrafts[ticket.id]?.note ?? ''} onChange={(e) => setUpload(ticket.id, { note: e.target.value })} />
-                    <button
-                      type="button"
-                      onClick={() => submitFile(ticket)}
-                      disabled={uploadingTicketId === ticket.id}
-                    >
-                      {uploadingTicketId === ticket.id
-                        ? 'Gonderiliyor...'
-                        : 'Teslim Gonder'}
-                    </button>
-                    {uploadFieldErrors[ticket.id] && (
-                      <p className="fieldError">{uploadFieldErrors[ticket.id]}</p>
+                {myTickets.map((ticket) => (
+                  <article key={ticket.id} className="ticketCard">
+                    <strong>{ticket.title}</strong>
+                    <p>{ticket.description || '-'}</p>
+                    <div className="ticketMeta">
+                      <span>{PRIORITY_LABELS[ticket.priority]}</span>
+                      <span>{STATUS_LABELS[ticket.status]}</span>
+                    </div>
+                    {ticket.reviewNote && (
+                      <p className="fieldError">Teslim ret sebebi: {ticket.reviewNote}</p>
                     )}
-                  </div>
-                </article>
-              ))}
+                    <div className="submissionBox">
+                      <h4>Teslim Dosyasi</h4>
+                      <input
+                        type="file"
+                        accept=".pdf,.doc,.docx,.ppt,.pptx"
+                        onChange={(e) =>
+                          setUpload(ticket.id, {
+                            file:
+                              e.currentTarget.files && e.currentTarget.files[0]
+                                ? e.currentTarget.files[0]
+                                : null,
+                          })
+                        }
+                        disabled={uploadingTicketId === ticket.id}
+                      />
+                      <input placeholder="Not" value={uploadDrafts[ticket.id]?.note ?? ''} onChange={(e) => setUpload(ticket.id, { note: e.target.value })} />
+                      <button
+                        type="button"
+                        onClick={() => submitFile(ticket)}
+                        disabled={uploadingTicketId === ticket.id}
+                      >
+                        {uploadingTicketId === ticket.id
+                          ? 'Gonderiliyor...'
+                          : 'Teslim Gonder'}
+                      </button>
+                      {uploadFieldErrors[ticket.id] && (
+                        <p className="fieldError">{uploadFieldErrors[ticket.id]}</p>
+                      )}
+                    </div>
+                  </article>
+                ))}
+                {myTickets.length === 0 && <p className="muted">Uzerinde calistigin gorev yok.</p>}
               </div>
             </motion.div>
           )}
-
-          {!loading && !isCaptain && memberTab === 'my_submissions' && (
+{!loading && !isCaptain && memberTab === 'my_submissions' && (
             <motion.div
               key="member-submissions"
               className="tabScene"
@@ -2168,6 +2091,11 @@ export default function HomePage() {
     </main>
   );
 }
+
+
+
+
+
 
 
 

@@ -97,6 +97,15 @@ const SUCCESS_QUOTES = [
   'Başarı tesadüf değil, tekrarlanan doğru davranıştır.',
 ];
 
+function pickNextQuote(previousQuote: string) {
+  if (SUCCESS_QUOTES.length < 2) return SUCCESS_QUOTES[0] ?? previousQuote;
+  let next = previousQuote;
+  while (next === previousQuote) {
+    next = SUCCESS_QUOTES[Math.floor(Math.random() * SUCCESS_QUOTES.length)];
+  }
+  return next;
+}
+
 export default function HomePage() {
   const [authBundle, setAuthBundle] = useState<AuthBundle | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -115,6 +124,10 @@ export default function HomePage() {
 
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotFieldError, setForgotFieldError] = useState('');
+  const [isForgotMode, setIsForgotMode] = useState(false);
+  const [isSendingResetLink, setIsSendingResetLink] = useState(false);
 
   const [memberName, setMemberName] = useState('');
   const [memberEmail, setMemberEmail] = useState('');
@@ -771,14 +784,7 @@ export default function HomePage() {
   useEffect(() => {
     if (introStage !== 'quote') return;
     const timer = setInterval(() => {
-      setIntroQuote((prev) => {
-        if (SUCCESS_QUOTES.length < 2) return prev;
-        let next = prev;
-        while (next === prev) {
-          next = SUCCESS_QUOTES[Math.floor(Math.random() * SUCCESS_QUOTES.length)];
-        }
-        return next;
-      });
+      setIntroQuote((prev) => pickNextQuote(prev));
     }, QUOTE_ROTATE_MS);
     return () => clearInterval(timer);
   }, [introStage]);
@@ -808,9 +814,7 @@ export default function HomePage() {
       setLoading(true);
       setAuthBundle(bundle);
       setIntroStage('terminal');
-      setIntroQuote(
-        SUCCESS_QUOTES[Math.floor(Math.random() * SUCCESS_QUOTES.length)],
-      );
+      setIntroQuote((prev) => pickNextQuote(prev));
       setLoginEmail('');
       setLoginPassword('');
       showToast('success', 'Giriş başarılı');
@@ -820,6 +824,36 @@ export default function HomePage() {
       setError(message);
     } finally {
       setIsLoggingIn(false);
+    }
+  }
+
+  async function onForgotPassword(e: FormEvent) {
+    e.preventDefault();
+    if (isSendingResetLink) return;
+    setForgotFieldError('');
+    setError('');
+    const email = forgotEmail.trim().toLowerCase();
+    if (!email.includes('@')) {
+      setForgotFieldError('Gecerli bir e-posta giriniz');
+      return;
+    }
+    try {
+      setIsSendingResetLink(true);
+      const res = await fetch(`${API_URL}/auth/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      if (!res.ok) throw new Error(await extractErrorMessage(res));
+      setForgotEmail('');
+      setIsForgotMode(false);
+      showToast('success', 'Sifre sifirlama baglantisi gonderildi');
+    } catch (e) {
+      const message =
+        e instanceof TypeError ? NETWORK_ERROR_MESSAGE : (e as Error).message;
+      setError(message);
+    } finally {
+      setIsSendingResetLink(false);
     }
   }
 
@@ -1260,6 +1294,35 @@ export default function HomePage() {
               {isLoggingIn ? 'Giris yapiliyor...' : 'Giris Yap'}
             </button>
           </form>
+          <button
+            type="button"
+            className="textBtn"
+            onClick={() => {
+              setIsForgotMode((prev) => !prev);
+              setForgotFieldError('');
+            }}
+          >
+            {isForgotMode ? 'Giris formuna don' : 'Sifremi unuttum'}
+          </button>
+          {isForgotMode && (
+            <form onSubmit={onForgotPassword} className="formBlock forgotForm">
+              <input
+                placeholder="Kayitli e-posta"
+                value={forgotEmail}
+                onChange={(e) => {
+                  setForgotEmail(e.target.value);
+                  setForgotFieldError('');
+                }}
+                required
+              />
+              {forgotFieldError && <p className="fieldError">{forgotFieldError}</p>}
+              <button type="submit" disabled={isSendingResetLink}>
+                {isSendingResetLink
+                  ? 'Baglanti gonderiliyor...'
+                  : 'Sifre sifirlama baglantisi gonder'}
+              </button>
+            </form>
+          )}
         </section>
       </main>
     );
@@ -1317,9 +1380,7 @@ export default function HomePage() {
                 type="button"
                 className="introActionBtn"
                 onClick={() => {
-                  setIntroQuote(
-                    SUCCESS_QUOTES[Math.floor(Math.random() * SUCCESS_QUOTES.length)],
-                  );
+                  setIntroQuote((prev) => pickNextQuote(prev));
                   setIntroStage('quote');
                 }}
               >

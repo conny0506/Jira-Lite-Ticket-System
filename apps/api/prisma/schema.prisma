@@ -58,6 +58,8 @@ model TeamMember {
   name             String
   email            String       @unique
   passwordHash     String       @default("03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4")
+  passwordResetTokenHash String? @unique
+  passwordResetExpiresAt DateTime?
   role             TeamRole     @default(MEMBER)
   active           Boolean      @default(true)
   createdAt        DateTime     @default(now())

@@ -1,16 +1,23 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
 import * as argon2 from 'argon2';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { PasswordResetMailService } from './password-reset-mail.service';
 import { signAccessToken } from './token.util';
 
 @Injectable()
 export class AuthService {
   private readonly accessTtlSeconds = Number(process.env.ACCESS_TOKEN_TTL_SECONDS ?? 300);
   private readonly refreshTtlDays = Number(process.env.REFRESH_TOKEN_TTL_DAYS ?? 14);
+  private readonly passwordResetTtlMinutes = Number(
+    process.env.PASSWORD_RESET_TTL_MINUTES ?? 30,
+  );
   private readonly oneSessionPerUser = (process.env.ONE_SESSION_PER_USER ?? 'true') === 'true';
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly passwordResetMailService: PasswordResetMailService,
+  ) {}
 
   async hashPassword(password: string) {
     return argon2.hash(password, {
@@ -41,6 +48,10 @@ export class AuthService {
   }
 
   generateRefreshToken() {
+    return randomBytes(48).toString('base64url');
+  }
+
+  private generatePasswordResetToken() {
     return randomBytes(48).toString('base64url');
   }
 
@@ -151,6 +162,82 @@ export class AuthService {
       where: { refreshTokenHash: hash, revokedAt: null },
       data: { revokedAt: new Date() },
     });
+    return { ok: true };
+  }
+
+  async forgotPassword(email: string) {
+    const normalizedEmail = email.toLowerCase().trim();
+    const member = await this.prisma.teamMember.findUnique({
+      where: { email: normalizedEmail },
+      select: { id: true, name: true, email: true, active: true },
+    });
+
+    if (!member || !member.active) {
+      return { ok: true };
+    }
+
+    const rawToken = this.generatePasswordResetToken();
+    const tokenHash = this.hashToken(rawToken);
+    const expiresAt = new Date(Date.now() + this.passwordResetTtlMinutes * 60 * 1000);
+
+    await this.prisma.$executeRaw`
+      UPDATE "TeamMember"
+      SET "passwordResetTokenHash" = ${tokenHash},
+          "passwordResetExpiresAt" = ${expiresAt},
+          "updatedAt" = NOW()
+      WHERE "id" = ${member.id}
+    `;
+
+    const baseUrl =
+      process.env.PASSWORD_RESET_URL_BASE?.trim() ||
+      `${(process.env.WEB_ORIGIN ?? 'http://localhost:3000').split(',')[0].trim()}/reset-password`;
+    const resetUrl = `${baseUrl}?token=${encodeURIComponent(rawToken)}`;
+
+    await this.passwordResetMailService.sendPasswordResetEmail({
+      to: member.email,
+      name: member.name,
+      resetUrl,
+    });
+
+    return { ok: true };
+  }
+
+  async resetPassword(token: string, newPassword: string) {
+    const tokenHash = this.hashToken(token.trim());
+    const rows = await this.prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT "id"
+      FROM "TeamMember"
+      WHERE "passwordResetTokenHash" = ${tokenHash}
+        AND "passwordResetExpiresAt" > NOW()
+        AND "active" = true
+      LIMIT 1
+    `;
+    const member = rows[0] ?? null;
+
+    if (!member) {
+      throw new BadRequestException('Sifre sifirlama baglantisi gecersiz veya suresi dolmus');
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.teamMember.update({
+        where: { id: member.id },
+        data: {
+          passwordHash: await this.hashPassword(newPassword),
+        },
+      }),
+      this.prisma.$executeRaw`
+        UPDATE "TeamMember"
+        SET "passwordResetTokenHash" = NULL,
+            "passwordResetExpiresAt" = NULL,
+            "updatedAt" = NOW()
+        WHERE "id" = ${member.id}
+      `,
+      this.prisma.authSession.updateMany({
+        where: { memberId: member.id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      }),
+    ]);
+
     return { ok: true };
   }
 

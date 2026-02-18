@@ -21,6 +21,7 @@ import { BulkUpdateTicketStatusDto } from './dto/bulk-update-ticket-status.dto';
 import { UpdateTicketAssigneeDto } from './dto/update-ticket-assignee.dto';
 import { ReviewTicketDto } from './dto/review-ticket.dto';
 import { UpdateTicketStatusDto } from './dto/update-ticket-status.dto';
+import { MarkTicketsSeenDto } from './dto/mark-tickets-seen.dto';
 
 @Controller('tickets')
 export class TicketsController {
@@ -74,6 +75,11 @@ export class TicketsController {
     @Body() dto: UpdateTicketStatusDto,
   ) {
     return this.ticketsService.updateStatus(actorId, id, dto);
+  }
+
+  @Patch('seen')
+  markSeen(@CurrentUserId() actorId: string, @Body() dto: MarkTicketsSeenDto) {
+    return this.ticketsService.markSeen(actorId, dto);
   }
 
   @Patch(':id/assignee')

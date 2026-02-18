@@ -95,10 +95,12 @@ model TicketAssignment {
   ticketId    String
   memberId    String
   assignedAt  DateTime   @default(now())
+  seenAt      DateTime?
   ticket      Ticket     @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   member      TeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
 
   @@id([ticketId, memberId])
+  @@index([memberId, seenAt])
 }
 
 model ProjectAssignment {

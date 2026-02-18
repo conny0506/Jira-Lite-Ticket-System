@@ -7,6 +7,6 @@ import { PasswordResetMailService } from './password-reset-mail.service';
 @Module({
   controllers: [AuthController],
   providers: [AuthService, AuthRateLimitService, PasswordResetMailService],
-  exports: [AuthService],
+  exports: [AuthService, PasswordResetMailService],
 })
 export class AuthModule {}

@@ -54,16 +54,6 @@ npm run dev -w @jira-lite/web
 - Vercel ayari: `apps/web/vercel.json`
 - Ornek production env: `.env.production.example`
 
-## Guvenlik ve Hassas Bilgiler
-
-- Gercek secret degerlerini asla repoya koyma.
-- `gerekli_bilgiler.txt`, `*.local.txt`, `.env` dosyalari commit edilmemelidir.
-- Secretlar icin sadece template kullan:
-  - `gerekli_bilgiler.template.txt`
-  - `.env.example`
-  - `.env.production.example`
-- `JWT_SECRET`, `DATABASE_URL`, `REDIS_URL`, `SMTP_*`, `RESEND_*`, `GMAIL_*`, `S3_*` gibi alanlar sadece ortam degiskeni olarak girilmelidir.
-- Bir secret sizdiysa hemen rotate et (yeni key/token olustur).
 
 ## Komutlar
 

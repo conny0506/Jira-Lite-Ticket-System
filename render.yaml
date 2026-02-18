@@ -15,6 +15,8 @@ services:
         value: production
       - key: API_PORT
         value: "4000"
+      - key: TRUST_PROXY
+        value: "true"
       - key: DATABASE_URL
         sync: false
       - key: REDIS_URL
@@ -27,6 +29,14 @@ services:
         value: "300"
       - key: REFRESH_TOKEN_TTL_DAYS
         value: "14"
+      - key: AUTH_LOGIN_RATE_LIMIT_MAX
+        value: "10"
+      - key: AUTH_LOGIN_RATE_LIMIT_WINDOW_SECONDS
+        value: "60"
+      - key: AUTH_REFRESH_RATE_LIMIT_MAX
+        value: "60"
+      - key: AUTH_REFRESH_RATE_LIMIT_WINDOW_SECONDS
+        value: "300"
       - key: ONE_SESSION_PER_USER
         value: "true"
       - key: COOKIE_SAME_SITE

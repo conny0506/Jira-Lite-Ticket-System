@@ -1,6 +1,7 @@
 import { BadRequestException, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { ValidationError } from 'class-validator';
+import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { AuthService } from './auth/auth.service';
 import { PrismaService } from './prisma/prisma.service';
@@ -29,6 +30,21 @@ function mapValidationError(error: ValidationError): string[] {
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  const trustProxy =
+    (process.env.TRUST_PROXY ?? (process.env.NODE_ENV === 'production' ? 'true' : 'false'))
+      .toLowerCase()
+      .trim() === 'true';
+  if (trustProxy) {
+    const server = app.getHttpAdapter().getInstance() as any;
+    if (typeof server.set === 'function') {
+      server.set('trust proxy', 1);
+    }
+  }
+  app.use(
+    helmet({
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
+    }),
+  );
   const webOriginEnv = process.env.WEB_ORIGIN ?? 'http://localhost:3000';
   const allowedOrigins = webOriginEnv
     .split(',')
@@ -65,14 +81,14 @@ async function bootstrap() {
         name: 'Ece MUTLUER',
         role: 'CAPTAIN',
         active: true,
-        passwordHash: auth.hashPassword(password),
+        passwordHash: await auth.hashPassword(password),
       },
       create: {
         name: 'Ece MUTLUER',
         email: email.toLowerCase(),
         role: 'CAPTAIN',
         active: true,
-        passwordHash: auth.hashPassword(password),
+        passwordHash: await auth.hashPassword(password),
       },
     });
     // eslint-disable-next-line no-console

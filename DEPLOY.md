@@ -40,6 +40,11 @@ JWT_SECRET=change-this-to-a-strong-random-secret
 ACCESS_TOKEN_TTL_SECONDS=300
 REFRESH_TOKEN_TTL_DAYS=14
 ONE_SESSION_PER_USER=true
+TRUST_PROXY=true
+AUTH_LOGIN_RATE_LIMIT_MAX=10
+AUTH_LOGIN_RATE_LIMIT_WINDOW_SECONDS=60
+AUTH_REFRESH_RATE_LIMIT_MAX=60
+AUTH_REFRESH_RATE_LIMIT_WINDOW_SECONDS=300
 COOKIE_SAME_SITE=none
 COOKIE_SECURE=true
 # optional (example: .your-domain.com)
@@ -132,6 +137,8 @@ If old local files are important, upload them to the bucket and update correspon
 
 - Use a strong `JWT_SECRET`.
 - Restrict CORS with exact `WEB_ORIGIN`.
+- Password hashing is Argon2-based; old SHA256 hashes are upgraded on next login.
+- Keep auth rate limit env values in place (login/refresh endpoints).
 - Do not commit production `.env` files.
 - Enable backups for Postgres.
 - Enable bucket lifecycle and access controls.

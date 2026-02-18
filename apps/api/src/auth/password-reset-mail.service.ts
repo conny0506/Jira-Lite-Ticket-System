@@ -9,7 +9,7 @@ export class PasswordResetMailService {
     const host = process.env.SMTP_HOST?.trim();
     const port = Number(process.env.SMTP_PORT ?? 587);
     const user = process.env.SMTP_USER?.trim();
-    const pass = process.env.SMTP_PASS ?? '';
+    const pass = (process.env.SMTP_PASS ?? '').replace(/\s+/g, '');
     const secure = (process.env.SMTP_SECURE ?? 'false').toLowerCase() === 'true';
 
     if (!host || !user || !pass) {
@@ -41,6 +41,16 @@ export class PasswordResetMailService {
     }
 
     try {
+      await transport.verify();
+    } catch (error) {
+      const err = error as { code?: string; message?: string };
+      const code = err.code ?? 'SMTP_VERIFY_FAILED';
+      const message = err.message ?? 'verify failed';
+      this.logger.error(`SMTP verify hatasi [${code}]: ${message}`);
+      throw new Error(`SMTP_VERIFY_FAILED:${code}`);
+    }
+
+    try {
       await transport.sendMail({
         from,
         to: params.to,
@@ -63,8 +73,11 @@ export class PasswordResetMailService {
         `,
       });
     } catch (error) {
-      this.logger.error(`Password reset e-mail gonderilemedi: ${(error as Error).message}`);
-      throw new Error('Password reset e-mail could not be sent');
+      const err = error as { code?: string; message?: string };
+      const code = err.code ?? 'SMTP_SEND_FAILED';
+      const message = err.message ?? 'send failed';
+      this.logger.error(`Password reset e-mail gonderilemedi [${code}]: ${message}`);
+      throw new Error(`SMTP_SEND_FAILED:${code}`);
     }
   }
 }

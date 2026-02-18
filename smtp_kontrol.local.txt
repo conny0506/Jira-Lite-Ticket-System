@@ -1,0 +1,9 @@
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=mustafa.din067@gmail.com
+SMTP_PASS=yuim dcra hjrf wavb
+SMTP_FROM=Jira-lite <mustafa.din067@gmail.com>
+PASSWORD_RESET_URL_BASE=https://jira-lite-ticket-system-web.vercel.app/reset-password
+WEB_ORIGIN=https://jira-lite-ticket-system-web.vercel.app
+API_DOMAIN=https://ulgen-arge-jira.onrender.com

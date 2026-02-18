@@ -48,6 +48,7 @@ model Ticket {
   projectId   String
   title       String
   description String?
+  dueAt       DateTime?
   status      TicketStatus       @default(TODO)
   priority    TicketPriority     @default(MEDIUM)
   completedAt DateTime?
@@ -122,6 +123,7 @@ model Submission {
   mimeType    String
   size        Int
   note        String?
+  lateReason  String?
   createdAt   DateTime   @default(now())
   ticket      Ticket     @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   submittedBy TeamMember @relation(fields: [submittedById], references: [id], onDelete: Restrict)

@@ -28,6 +28,7 @@ type Submission = {
   id: string;
   fileName: string;
   note?: string | null;
+  lateReason?: string | null;
   createdAt: string;
   submittedBy: Pick<TeamMember, 'id' | 'name' | 'role'>;
 };
@@ -40,6 +41,7 @@ type Ticket = {
   createdAt?: string;
   status: TicketStatus;
   priority: TicketPriority;
+  dueAt?: string | null;
   completedAt?: string | null;
   reviewNote?: string | null;
   assignees: Array<{ member: TeamMember; seenAt?: string | null }>;
@@ -48,6 +50,7 @@ type Ticket = {
 
 type UploadDraft = {
   note: string;
+  lateReason: string;
   file: File | null;
 };
 
@@ -135,6 +138,7 @@ export default function HomePage() {
   const [ticketTitle, setTicketTitle] = useState('');
   const [ticketDesc, setTicketDesc] = useState('');
   const [ticketPriority, setTicketPriority] = useState<TicketPriority>('MEDIUM');
+  const [ticketDueAt, setTicketDueAt] = useState('');
   const [ticketAssignees, setTicketAssignees] = useState<string[]>([]);
 
   const [uploadDrafts, setUploadDrafts] = useState<Record<string, UploadDraft>>({});
@@ -495,16 +499,17 @@ export default function HomePage() {
       .filter((ticket) => {
         const latestSubmission = ticket.submissions
           .slice()
-          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
-        if (!latestSubmission) return false;
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0] ?? null;
         const bySearch =
           search.length === 0 ||
           ticket.title.toLowerCase().includes(search) ||
           (ticket.description ?? '').toLowerCase().includes(search) ||
-          latestSubmission.fileName.toLowerCase().includes(search);
+          (latestSubmission?.fileName.toLowerCase().includes(search) ?? false);
         const byProject =
           submissionProjectFilter === 'ALL' || ticket.projectId === submissionProjectFilter;
-        const refMs = new Date(latestSubmission.createdAt).getTime();
+        const refMs = new Date(
+          latestSubmission?.createdAt ?? ticket.createdAt ?? new Date(0).toISOString(),
+        ).getTime();
         const byStart =
           !submissionStartDate ||
           refMs >= new Date(`${submissionStartDate}T00:00:00`).getTime();
@@ -514,12 +519,18 @@ export default function HomePage() {
         return bySearch && byProject && byStart && byEnd;
       })
       .sort((a, b) => {
-        const aMs = Math.max(
-          ...a.submissions.map((submission) => new Date(submission.createdAt).getTime()),
-        );
-        const bMs = Math.max(
-          ...b.submissions.map((submission) => new Date(submission.createdAt).getTime()),
-        );
+        const aLatest = a.submissions
+          .slice()
+          .sort((x, y) => new Date(y.createdAt).getTime() - new Date(x.createdAt).getTime())[0];
+        const bLatest = b.submissions
+          .slice()
+          .sort((x, y) => new Date(y.createdAt).getTime() - new Date(x.createdAt).getTime())[0];
+        const aMs = new Date(
+          aLatest?.createdAt ?? a.createdAt ?? new Date(0).toISOString(),
+        ).getTime();
+        const bMs = new Date(
+          bLatest?.createdAt ?? b.createdAt ?? new Date(0).toISOString(),
+        ).getTime();
         return bMs - aMs;
       });
   }, [
@@ -531,8 +542,8 @@ export default function HomePage() {
     tickets,
   ]);
 
-  const captainPendingReviewTickets = useMemo(
-    () => captainMemberTickets.filter((ticket) => ticket.status === 'IN_REVIEW'),
+  const captainActiveMemberTickets = useMemo(
+    () => captainMemberTickets.filter((ticket) => ticket.status !== 'DONE'),
     [captainMemberTickets],
   );
 
@@ -540,6 +551,21 @@ export default function HomePage() {
     () => captainMemberTickets.filter((ticket) => ticket.status === 'DONE'),
     [captainMemberTickets],
   );
+
+  const captainAssignableTickets = useMemo(() => {
+    const search = taskSearch.trim().toLowerCase();
+    return tickets
+      .filter((ticket) => ticket.assignees.length === 0)
+      .filter((ticket) => {
+        const bySearch =
+          search.length === 0 ||
+          ticket.title.toLowerCase().includes(search) ||
+          (ticket.description ?? '').toLowerCase().includes(search);
+        const byPriority =
+          taskPriorityFilter === 'ALL' || ticket.priority === taskPriorityFilter;
+        return bySearch && byPriority;
+      });
+  }, [tickets, taskSearch, taskPriorityFilter]);
 
   function getFileTypeLabel(fileName: string) {
     const ext = fileName.toLowerCase().split('.').pop() ?? '';
@@ -1006,12 +1032,14 @@ export default function HomePage() {
           title,
           description: ticketDesc || undefined,
           priority: ticketPriority,
+          dueAt: new Date(ticketDueAt).toISOString(),
           assigneeIds: ticketAssignees,
         }),
       });
       setTicketTitle('');
       setTicketDesc('');
       setTicketPriority('MEDIUM');
+      setTicketDueAt('');
       setTicketAssignees([]);
       await loadAll();
       showToast('success', 'Görev oluşturuldu');
@@ -1167,6 +1195,7 @@ export default function HomePage() {
       ...prev,
       [ticketId]: {
         note: prev[ticketId]?.note ?? '',
+        lateReason: prev[ticketId]?.lateReason ?? '',
         file: prev[ticketId]?.file ?? null,
         ...patch,
       },
@@ -1203,18 +1232,26 @@ export default function HomePage() {
       setUploadFieldError(ticket.id, 'Sadece PDF, DOC, DOCX, PPT, PPTX kabul edilir');
       return;
     }
+    const dueAtMs = ticket.dueAt ? new Date(ticket.dueAt).getTime() : null;
+    const isLate = typeof dueAtMs === 'number' && !Number.isNaN(dueAtMs) && Date.now() > dueAtMs;
+    const lateReason = draft.lateReason?.trim() ?? '';
+    if (isLate && lateReason.length < 3) {
+      setUploadFieldError(ticket.id, 'Son teslim tarihi gecildigi icin mazeret girmek zorunludur');
+      return;
+    }
     setError('');
     try {
       setUploadingTicketId(ticket.id);
       const form = new FormData();
       form.set('submittedById', currentUser.id);
       form.set('note', draft.note);
+      form.set('lateReason', lateReason);
       form.set('file', draft.file);
       await apiFetch(`/tickets/${ticket.id}/submissions`, {
         method: 'POST',
         body: form,
       });
-      setUpload(ticket.id, { note: '', file: null });
+      setUpload(ticket.id, { note: '', lateReason: '', file: null });
       clearUploadFieldError(ticket.id);
       await loadAll();
       showToast('success', 'Teslim gönderildi');
@@ -1232,6 +1269,14 @@ export default function HomePage() {
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0] ??
       null
     );
+  }
+
+  function isOnTimeSubmission(ticket: Ticket, submission: Submission) {
+    if (!ticket.dueAt) return true;
+    const dueMs = new Date(ticket.dueAt).getTime();
+    const submitMs = new Date(submission.createdAt).getTime();
+    if (Number.isNaN(dueMs) || Number.isNaN(submitMs)) return true;
+    return submitMs <= dueMs;
   }
 
   function setReviewReason(ticketId: string, value: string) {
@@ -1754,17 +1799,6 @@ export default function HomePage() {
                   <option value="HIGH">{PRIORITY_LABELS.HIGH}</option>
                   <option value="CRITICAL">{PRIORITY_LABELS.CRITICAL}</option>
                 </select>
-                <select
-                  value={taskAssigneeFilter}
-                  onChange={(e) => setTaskAssigneeFilter(e.target.value)}
-                >
-                  <option value="ALL">Tum Atananlar</option>
-                  {teamMembers.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name}
-                    </option>
-                  ))}
-                </select>
               </div>
 
               <form onSubmit={createTicket} className="ticketForm">
@@ -1778,6 +1812,12 @@ export default function HomePage() {
                   required
                 />
                 <textarea placeholder="Aciklama" value={ticketDesc} onChange={(e) => setTicketDesc(e.target.value)} />
+                <input
+                  type="datetime-local"
+                  value={ticketDueAt}
+                  onChange={(e) => setTicketDueAt(e.target.value)}
+                  required
+                />
                 <select value={ticketPriority} onChange={(e) => setTicketPriority(e.target.value as TicketPriority)}>
                   <option value="LOW">{PRIORITY_LABELS.LOW}</option>
                   <option value="MEDIUM">{PRIORITY_LABELS.MEDIUM}</option>
@@ -1798,10 +1838,13 @@ export default function HomePage() {
               </form>
 
               <div className="ticketStack">
-                {filteredSelectedProjectTickets.map((ticket) => (
+                {captainAssignableTickets.map((ticket) => (
                   <article key={ticket.id} className="ticketCard">
                     <strong>{ticket.title}</strong>
                     <p>{ticket.description || '-'}</p>
+                    <p className="muted">
+                      Son teslim tarihi: {ticket.dueAt ? new Date(ticket.dueAt).toLocaleString('tr-TR') : '-'}
+                    </p>
                     <div className="ticketMeta">
                       <span>{PRIORITY_LABELS[ticket.priority]}</span>
                       <span>{STATUS_LABELS[ticket.status]}</span>
@@ -1826,8 +1869,8 @@ export default function HomePage() {
                     </div>
                   </article>
                 ))}
-                {filteredSelectedProjectTickets.length === 0 && (
-                  <p className="muted">Filtreye uygun gorev bulunamadi.</p>
+                {captainAssignableTickets.length === 0 && (
+                  <p className="muted">Atanmayi bekleyen gorev bulunamadi.</p>
                 )}
               </div>
             </motion.div>
@@ -1890,28 +1933,57 @@ export default function HomePage() {
                     <h2>{captainFocusedMember.name} - Bekleyen Teslimler</h2>
                   </div>
                   <div className="ticketStack">
-                    {captainPendingReviewTickets.map((ticket) => {
+                    {captainActiveMemberTickets.map((ticket) => {
                       const latestSubmission = getLatestSubmission(ticket);
-                      if (!latestSubmission) return null;
+                      const seenInfo = ticket.assignees.find(
+                        (assignment) => assignment.member.id === captainFocusedMember.id,
+                      );
                       return (
                         <article key={ticket.id} className="ticketCard">
                           <strong>{ticket.title}</strong>
                           <p>{ticket.description || '-'}</p>
                           <p className="muted">
-                            Son teslim: {new Date(latestSubmission.createdAt).toLocaleString('tr-TR')}
+                            Durum: {STATUS_LABELS[ticket.status]} | Gorulme:{' '}
+                            {seenInfo?.seenAt
+                              ? new Date(seenInfo.seenAt).toLocaleString('tr-TR')
+                              : 'Henuz gorulmedi'}
+                          </p>
+                          {!latestSubmission && (
+                            <p className="muted">Bu gorev icin henuz teslim yapilmadi.</p>
+                          )}
+                          {latestSubmission && (
+                            <>
+                          <p className="muted">
+                            Son teslim tarihi:{' '}
+                            {ticket.dueAt ? new Date(ticket.dueAt).toLocaleString('tr-TR') : '-'}
+                          </p>
+                          <p className="muted">
+                            Teslim zamani: {new Date(latestSubmission.createdAt).toLocaleString('tr-TR')}
+                            <span className={`deadlineBadge ${isOnTimeSubmission(ticket, latestSubmission) ? 'onTime' : 'late'}`}>
+                              {isOnTimeSubmission(ticket, latestSubmission) ? 'Zamaninda' : 'Gec teslim'}
+                            </span>
                           </p>
                           <p className="muted">
                             Dosya: {latestSubmission.fileName}
                             {latestSubmission.note ? ` | Aciklama: ${latestSubmission.note}` : ''}
                           </p>
+                          {latestSubmission.lateReason && (
+                            <p className="fieldError">Gec teslim mazereti: {latestSubmission.lateReason}</p>
+                          )}
+                            </>
+                          )}
                           <div className="quickRow">
-                            <button type="button" onClick={() => downloadSubmission(latestSubmission)}>
+                            <button
+                              type="button"
+                              onClick={() => latestSubmission && downloadSubmission(latestSubmission)}
+                              disabled={!latestSubmission}
+                            >
                               Dosyayi Indir
                             </button>
                             <button
                               type="button"
                               onClick={() => reviewTicket(ticket, 'APPROVE')}
-                              disabled={reviewingTicketId === ticket.id}
+                              disabled={reviewingTicketId === ticket.id || !latestSubmission || ticket.status !== 'IN_REVIEW'}
                             >
                               {reviewingTicketId === ticket.id ? 'Isleniyor...' : 'Teslim onay'}
                             </button>
@@ -1925,7 +1997,7 @@ export default function HomePage() {
                             <button
                               type="button"
                               onClick={() => reviewTicket(ticket, 'REJECT')}
-                              disabled={reviewingTicketId === ticket.id}
+                              disabled={reviewingTicketId === ticket.id || !latestSubmission || ticket.status !== 'IN_REVIEW'}
                             >
                               Teslim ret
                             </button>
@@ -1933,8 +2005,8 @@ export default function HomePage() {
                         </article>
                       );
                     })}
-                    {captainPendingReviewTickets.length === 0 && (
-                      <p className="muted">Bu uye icin bekleyen teslim yok.</p>
+                    {captainActiveMemberTickets.length === 0 && (
+                      <p className="muted">Bu uye icin aktif gorev yok.</p>
                     )}
                   </div>
 
@@ -2014,6 +2086,13 @@ export default function HomePage() {
                         disabled={uploadingTicketId === ticket.id}
                       />
                       <input placeholder="Not" value={uploadDrafts[ticket.id]?.note ?? ''} onChange={(e) => setUpload(ticket.id, { note: e.target.value })} />
+                      {ticket.dueAt && new Date(ticket.dueAt).getTime() < Date.now() && (
+                        <input
+                          placeholder="Gec teslim mazereti (zorunlu)"
+                          value={uploadDrafts[ticket.id]?.lateReason ?? ''}
+                          onChange={(e) => setUpload(ticket.id, { lateReason: e.target.value })}
+                        />
+                      )}
                       <button
                         type="button"
                         onClick={() => submitFile(ticket)}

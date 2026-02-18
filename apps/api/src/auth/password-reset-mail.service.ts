@@ -39,7 +39,11 @@ export class PasswordResetMailService {
     ticketTitle: string;
     assignedByName: string;
     portalUrl: string;
+    dueAt?: Date;
   }): EmailContent {
+    const dueLine = params.dueAt
+      ? `Son teslim tarihi: ${params.dueAt.toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })}`
+      : 'Son teslim tarihi: Belirtilmedi';
     return {
       subject: `Yeni gorev atandi: ${params.ticketTitle}`,
       text: [
@@ -47,6 +51,7 @@ export class PasswordResetMailService {
         '',
         `${params.assignedByName} tarafindan size yeni bir gorev atandi.`,
         `Gorev: ${params.ticketTitle}`,
+        dueLine,
         '',
         `Gorevi goruntulemek icin: ${params.portalUrl}`,
       ].join('\n'),
@@ -54,6 +59,7 @@ export class PasswordResetMailService {
         <p>Merhaba ${params.name},</p>
         <p><strong>${params.assignedByName}</strong> tarafindan size yeni bir gorev atandi.</p>
         <p><strong>Gorev:</strong> ${params.ticketTitle}</p>
+        <p><strong>${dueLine}</strong></p>
         <p><a href="${params.portalUrl}">Gorev panelini ac</a></p>
       `,
     };
@@ -92,6 +98,7 @@ export class PasswordResetMailService {
     ticketTitle: string;
     assignedByName: string;
     ticketId: string;
+    dueAt?: Date;
   }) {
     const preferredWebOrigin = (process.env.WEB_ORIGIN ?? '')
       .split(',')
@@ -105,6 +112,7 @@ export class PasswordResetMailService {
       ticketTitle: params.ticketTitle,
       assignedByName: params.assignedByName,
       portalUrl: `${portalUrl}/?ticket=${encodeURIComponent(params.ticketId)}`,
+      dueAt: params.dueAt,
     });
 
     await this.sendEmail({ to: params.to, content });

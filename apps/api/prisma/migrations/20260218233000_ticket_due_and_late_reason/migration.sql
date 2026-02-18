@@ -1,0 +1,5 @@
+ALTER TABLE "Ticket"
+ADD COLUMN "dueAt" TIMESTAMP(3);
+
+ALTER TABLE "Submission"
+ADD COLUMN "lateReason" TEXT;

@@ -865,6 +865,25 @@ button:disabled {
   color: var(--accent);
 }
 
+.deadlineBadge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.deadlineBadge.onTime {
+  color: #0f5132;
+  background: #d1fae5;
+}
+
+.deadlineBadge.late {
+  color: #7f1d1d;
+  background: #fee2e2;
+}
+
 .ticketMeta select {
   max-width: 125px;
   padding: 6px 8px;

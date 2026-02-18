@@ -44,10 +44,18 @@ services:
       - key: PASSWORD_RESET_URL_BASE
         sync: false
       - key: EMAIL_PROVIDER
-        value: resend
+        value: gmail_api
       - key: RESEND_API_KEY
         sync: false
       - key: RESEND_FROM
+        sync: false
+      - key: GMAIL_CLIENT_ID
+        sync: false
+      - key: GMAIL_CLIENT_SECRET
+        sync: false
+      - key: GMAIL_REFRESH_TOKEN
+        sync: false
+      - key: GMAIL_SENDER_EMAIL
         sync: false
       - key: EMAIL_HTTP_TIMEOUT_MS
         value: "15000"

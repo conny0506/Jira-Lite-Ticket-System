@@ -1,0 +1,31 @@
+Render ENV guncelleme notlari (Gmail API)
+
+1) Zorunlu yeni alanlar
+EMAIL_PROVIDER=gmail_api
+GMAIL_CLIENT_ID=
+GMAIL_CLIENT_SECRET=
+GMAIL_REFRESH_TOKEN=
+GMAIL_SENDER_EMAIL=mustafa.din067@gmail.com
+EMAIL_HTTP_TIMEOUT_MS=15000
+PASSWORD_RESET_URL_BASE=https://jira-lite-ticket-system-web.vercel.app/reset-password
+
+2) Kalsin (zaten kullaniyorsun)
+WEB_ORIGIN=https://jira-lite-ticket-system-web.vercel.app
+JWT_SECRET=...
+DATABASE_URL=...
+REDIS_URL=...
+
+3) Opsiyonel / Kullanilmayanlar
+- EMAIL_PROVIDER=gmail_api oldugu surece SMTP_* degerleri kullanilmaz.
+- EMAIL_PROVIDER=gmail_api oldugu surece RESEND_* degerleri kullanilmaz.
+- Istersen SMTP_* ve RESEND_* envlerini silebilirsin (zorunlu degil).
+
+4) Google Console tarafi
+- OAuth consent screen olustur.
+- Gmail API'yi enable et.
+- OAuth Client (Web app) olustur.
+- Refresh token al (offline access ile).
+- Yukaridaki 4 GMAIL_* degerini Render'a gir.
+
+5) Son adim
+- Render API service icin redeploy/restart yap.

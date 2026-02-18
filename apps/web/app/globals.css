@@ -352,7 +352,7 @@ body::before {
   margin-bottom: 0;
 }
 
-.terminalLine::after {
+.terminalLine.isTyping::after {
   content: "_";
   margin-left: 2px;
   color: #82d6ff;

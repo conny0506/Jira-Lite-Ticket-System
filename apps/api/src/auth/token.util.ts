@@ -16,7 +16,11 @@ function base64UrlDecode(input: string) {
 }
 
 function getSecret() {
-  return process.env.JWT_SECRET ?? 'dev-secret-change-me';
+  const secret = process.env.JWT_SECRET?.trim();
+  if (!secret) {
+    throw new Error('Missing JWT_SECRET environment variable');
+  }
+  return secret;
 }
 
 export function signAccessToken(payload: Omit<AccessPayload, 'typ' | 'exp'>, ttlSeconds: number) {

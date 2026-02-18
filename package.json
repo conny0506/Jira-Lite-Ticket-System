@@ -9,6 +9,6 @@
     "dev": "npm run dev -w @jira-lite/api & npm run dev -w @jira-lite/web",
     "dev:api": "npm run dev -w @jira-lite/api",
     "dev:web": "npm run dev -w @jira-lite/web",
-    "build": "npm run build -w @jira-lite/api && npm run build -w @jira-lite/web"
+    "build": "npm run prisma:generate -w @jira-lite/api && npm run build -w @jira-lite/api && npm run build -w @jira-lite/web"
   }
 }

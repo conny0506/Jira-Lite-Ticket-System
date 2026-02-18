@@ -1,0 +1,55 @@
+services:
+  - type: web
+    name: jira-lite-api
+    runtime: node
+    rootDir: .
+    healthCheckPath: /health
+    buildCommand: npm install && npm run prisma:generate -w @jira-lite/api && npm run build -w @jira-lite/api
+    startCommand: npm run start:prod -w @jira-lite/api
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: NODE_ENV
+        value: production
+      - key: API_PORT
+        value: "4000"
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: WEB_ORIGIN
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: ACCESS_TOKEN_TTL_SECONDS
+        value: "300"
+      - key: REFRESH_TOKEN_TTL_DAYS
+        value: "14"
+      - key: ONE_SESSION_PER_USER
+        value: "true"
+      - key: COOKIE_SAME_SITE
+        value: none
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: COOKIE_DOMAIN
+        value: ""
+      - key: BOOTSTRAP_CAPTAIN_EMAIL
+        value: captain@ulgen.local
+      - key: BOOTSTRAP_CAPTAIN_PASSWORD
+        sync: false
+      - key: STORAGE_DRIVER
+        value: s3
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_REGION
+        value: auto
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: S3_FORCE_PATH_STYLE
+        value: "true"
+      - key: S3_SIGNED_URL_TTL_SECONDS
+        value: "300"

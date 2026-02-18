@@ -62,6 +62,8 @@ type NotificationItem = ToastItem & { createdAt: string };
 type IntroStage = 'none' | 'terminal' | 'quote';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+const TYPEWRITER_CHARS_PER_SECOND = 120;
+const QUOTE_ROTATE_MS = 5000;
 const NETWORK_ERROR_MESSAGE = 'Sunucuya ulasilamadi. Lutfen baglantiyi ve API adresini kontrol edin.';
 const MAX_UPLOAD_SIZE_BYTES = 25 * 1024 * 1024;
 const ALLOWED_UPLOAD_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'ppt', 'pptx']);
@@ -162,6 +164,7 @@ export default function HomePage() {
   const [captainMetricsEnd, setCaptainMetricsEnd] = useState('');
   const [introStage, setIntroStage] = useState<IntroStage>('none');
   const [introQuote, setIntroQuote] = useState(SUCCESS_QUOTES[0]);
+  const [introTypedChars, setIntroTypedChars] = useState(0);
   const toastIdRef = useRef(1);
 
   const currentUser = authBundle?.user ?? null;
@@ -410,6 +413,54 @@ export default function HomePage() {
       }),
     [],
   );
+
+  const introTerminalLines = useMemo(() => {
+    const lines = [`> Tarih: ${todayText}`];
+    if (loading) {
+      lines.push('> Gunluk durum hazirlaniyor...');
+    }
+
+    if (isCaptain) {
+      lines.push(`> Takimda toplam ${teamMembers.length} aktif uye var.`);
+      lines.push(`> Bugun yonetilecek ${captainOpenTaskCount} aktif gorev var.`);
+    } else {
+      lines.push(`> Bugun ${myActiveTaskCount} aktif gorevin var.`);
+      lines.push(`> Bugun ${myTodaySubmissionCount} teslim gonderdin.`);
+    }
+
+    lines.push('> AI Asistan: Odaklan, ilerle, tamamla.');
+    lines.push(...introInsights.slice(0, 3).map((line) => `> ${line}`));
+    return lines;
+  }, [
+    todayText,
+    loading,
+    isCaptain,
+    teamMembers.length,
+    captainOpenTaskCount,
+    myActiveTaskCount,
+    myTodaySubmissionCount,
+    introInsights,
+  ]);
+
+  const introLineRanges = useMemo(() => {
+    let cursor = 0;
+    return introTerminalLines.map((line) => {
+      const start = cursor;
+      cursor += line.length;
+      return { start, end: cursor };
+    });
+  }, [introTerminalLines]);
+
+  const introTotalChars = introLineRanges.length
+    ? introLineRanges[introLineRanges.length - 1].end
+    : 0;
+
+  const getTypedIntroLine = (lineIndex: number) => {
+    const range = introLineRanges[lineIndex];
+    if (!range) return '';
+    const visibleChars = Math.max(0, Math.min(range.end - range.start, introTypedChars - range.start));
+    return introTerminalLines[lineIndex].slice(0, visibleChars);
+  };
 
   const filteredSubmissions = allSubmissions.filter(({ submission, ticket }) => {
     const byName = submission.fileName
@@ -698,6 +749,39 @@ export default function HomePage() {
     taskStatusFilter,
     taskPriorityFilter,
   ]);
+
+  useEffect(() => {
+    if (introStage !== 'terminal') return;
+    setIntroTypedChars(0);
+  }, [introStage]);
+
+  useEffect(() => {
+    if (introStage !== 'terminal') return;
+    if (introTotalChars === 0) return;
+    const tickMs = Math.max(8, Math.floor(1000 / TYPEWRITER_CHARS_PER_SECOND));
+    const timer = setInterval(() => {
+      setIntroTypedChars((prev) => {
+        if (prev >= introTotalChars) return prev;
+        return prev + 1;
+      });
+    }, tickMs);
+    return () => clearInterval(timer);
+  }, [introStage, introTotalChars]);
+
+  useEffect(() => {
+    if (introStage !== 'quote') return;
+    const timer = setInterval(() => {
+      setIntroQuote((prev) => {
+        if (SUCCESS_QUOTES.length < 2) return prev;
+        let next = prev;
+        while (next === prev) {
+          next = SUCCESS_QUOTES[Math.floor(Math.random() * SUCCESS_QUOTES.length)];
+        }
+        return next;
+      });
+    }, QUOTE_ROTATE_MS);
+    return () => clearInterval(timer);
+  }, [introStage]);
 
   async function onLogin(e: FormEvent) {
     e.preventDefault();
@@ -1211,35 +1295,23 @@ export default function HomePage() {
                 </span>
               </div>
               <div className="terminalBox">
-                <p className="terminalLine">{`> Tarih: ${todayText}`}</p>
-                {loading && (
-                  <p className="terminalLine">{'> Günlük durum hazırlanıyor...'}</p>
-                )}
-                {isCaptain ? (
-                  <>
-                    <p className="terminalLine">
-                      {`> Takımda toplam ${teamMembers.length} aktif üye var.`}
+                {introTerminalLines.map((line, index) => {
+                  const typedLine = getTypedIntroLine(index);
+                  if (!typedLine) return null;
+                  const range = introLineRanges[index];
+                  const isTyping =
+                    introTypedChars < introTotalChars &&
+                    introTypedChars > range.start &&
+                    introTypedChars <= range.end;
+                  return (
+                    <p
+                      key={`${line}-${index}`}
+                      className={isTyping ? 'terminalLine isTyping' : 'terminalLine'}
+                    >
+                      {typedLine}
                     </p>
-                    <p className="terminalLine">
-                      {`> Bugün yönetilecek ${captainOpenTaskCount} aktif görev var.`}
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <p className="terminalLine">
-                      {`> Bugün ${myActiveTaskCount} aktif görevin var.`}
-                    </p>
-                    <p className="terminalLine">
-                      {`> Bugün ${myTodaySubmissionCount} teslim gönderdin.`}
-                    </p>
-                  </>
-                )}
-                <p className="terminalLine">
-                  {'> AI Asistan: Odaklan, ilerle, tamamla.'}
-                </p>
-                {introInsights.slice(0, 3).map((line) => (
-                  <p key={line} className="terminalLine">{`> ${line}`}</p>
-                ))}
+                  );
+                })}
               </div>
               <button
                 type="button"
@@ -1266,7 +1338,17 @@ export default function HomePage() {
               transition={{ duration: 0.3 }}
             >
               <p className="quoteMark">“</p>
-              <blockquote>{introQuote}</blockquote>
+              <AnimatePresence mode="wait">
+                <motion.blockquote
+                  key={introQuote}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.25 }}
+                >
+                  {introQuote}
+                </motion.blockquote>
+              </AnimatePresence>
               <button
                 type="button"
                 className="introActionBtn introLightBtn"

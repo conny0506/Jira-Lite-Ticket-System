@@ -1,12 +1,18 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
 
+type EmailContent = {
+  subject: string;
+  text: string;
+  html: string;
+};
+
 @Injectable()
 export class PasswordResetMailService {
   private readonly logger = new Logger(PasswordResetMailService.name);
   private readonly provider = (process.env.EMAIL_PROVIDER ?? 'smtp').toLowerCase().trim();
 
-  private buildContent(params: { name: string; resetUrl: string }) {
+  private buildPasswordResetContent(params: { name: string; resetUrl: string }): EmailContent {
     return {
       subject: 'Jira-lite sifre sifirlama baglantisi',
       text: [
@@ -24,6 +30,31 @@ export class PasswordResetMailService {
         <p><a href="${params.resetUrl}">${params.resetUrl}</a></p>
         <p>Bu baglanti sinirli sure gecerlidir.</p>
         <p>Eger bu islemi siz istemediyseniz bu e-postayi yok sayin.</p>
+      `,
+    };
+  }
+
+  private buildTaskAssignedContent(params: {
+    name: string;
+    ticketTitle: string;
+    assignedByName: string;
+    portalUrl: string;
+  }): EmailContent {
+    return {
+      subject: `Yeni gorev atandi: ${params.ticketTitle}`,
+      text: [
+        `Merhaba ${params.name},`,
+        '',
+        `${params.assignedByName} tarafindan size yeni bir gorev atandi.`,
+        `Gorev: ${params.ticketTitle}`,
+        '',
+        `Gorevi goruntulemek icin: ${params.portalUrl}`,
+      ].join('\n'),
+      html: `
+        <p>Merhaba ${params.name},</p>
+        <p><strong>${params.assignedByName}</strong> tarafindan size yeni bir gorev atandi.</p>
+        <p><strong>Gorev:</strong> ${params.ticketTitle}</p>
+        <p><a href="${params.portalUrl}">Gorev panelini ac</a></p>
       `,
     };
   }
@@ -51,6 +82,35 @@ export class PasswordResetMailService {
   }
 
   async sendPasswordResetEmail(params: { to: string; name: string; resetUrl: string }) {
+    const content = this.buildPasswordResetContent({ name: params.name, resetUrl: params.resetUrl });
+    await this.sendEmail({ to: params.to, content });
+  }
+
+  async sendTaskAssignedEmail(params: {
+    to: string;
+    name: string;
+    ticketTitle: string;
+    assignedByName: string;
+    ticketId: string;
+  }) {
+    const preferredWebOrigin = (process.env.WEB_ORIGIN ?? '')
+      .split(',')
+      .map((x) => x.trim())
+      .find((x) => x.length > 0);
+    const fallback = (process.env.PASSWORD_RESET_URL_BASE ?? '').replace(/\/reset-password\/?$/, '');
+    const portalUrl = (preferredWebOrigin || fallback || 'http://localhost:3000').replace(/\/$/, '');
+
+    const content = this.buildTaskAssignedContent({
+      name: params.name,
+      ticketTitle: params.ticketTitle,
+      assignedByName: params.assignedByName,
+      portalUrl: `${portalUrl}/?ticket=${encodeURIComponent(params.ticketId)}`,
+    });
+
+    await this.sendEmail({ to: params.to, content });
+  }
+
+  private async sendEmail(params: { to: string; content: EmailContent }) {
     if (this.provider === 'gmail_api') {
       await this.sendViaGmailApi(params);
       return;
@@ -62,7 +122,7 @@ export class PasswordResetMailService {
     await this.sendViaSmtp(params);
   }
 
-  private async sendViaSmtp(params: { to: string; name: string; resetUrl: string }) {
+  private async sendViaSmtp(params: { to: string; content: EmailContent }) {
     const from = process.env.SMTP_FROM?.trim();
     if (!from) {
       this.logger.error('SMTP_FROM environment variable is missing');
@@ -86,24 +146,23 @@ export class PasswordResetMailService {
     }
 
     try {
-      const content = this.buildContent({ name: params.name, resetUrl: params.resetUrl });
       await transport.sendMail({
         from,
         to: params.to,
-        subject: content.subject,
-        text: content.text,
-        html: content.html,
+        subject: params.content.subject,
+        text: params.content.text,
+        html: params.content.html,
       });
     } catch (error) {
       const err = error as { code?: string; message?: string };
       const code = err.code ?? 'SMTP_SEND_FAILED';
       const message = err.message ?? 'send failed';
-      this.logger.error(`Password reset e-mail gonderilemedi [${code}]: ${message}`);
+      this.logger.error(`E-mail gonderilemedi [${code}]: ${message}`);
       throw new Error(`SMTP_SEND_FAILED:${code}`);
     }
   }
 
-  private async sendViaResend(params: { to: string; name: string; resetUrl: string }) {
+  private async sendViaResend(params: { to: string; content: EmailContent }) {
     const apiKey = process.env.RESEND_API_KEY?.trim();
     const from = process.env.RESEND_FROM?.trim() || process.env.SMTP_FROM?.trim();
     if (!apiKey || !from) {
@@ -111,7 +170,6 @@ export class PasswordResetMailService {
       throw new Error('Email service is not configured');
     }
 
-    const content = this.buildContent({ name: params.name, resetUrl: params.resetUrl });
     const timeoutMs = Number(process.env.EMAIL_HTTP_TIMEOUT_MS ?? 15000);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -125,9 +183,9 @@ export class PasswordResetMailService {
         body: JSON.stringify({
           from,
           to: [params.to],
-          subject: content.subject,
-          html: content.html,
-          text: content.text,
+          subject: params.content.subject,
+          html: params.content.html,
+          text: params.content.text,
         }),
         signal: controller.signal,
       });
@@ -232,7 +290,7 @@ export class PasswordResetMailService {
     return this.toBase64Url(lines.join('\r\n'));
   }
 
-  private async sendViaGmailApi(params: { to: string; name: string; resetUrl: string }) {
+  private async sendViaGmailApi(params: { to: string; content: EmailContent }) {
     const from = process.env.GMAIL_SENDER_EMAIL?.trim();
     if (!from) {
       this.logger.error('GMAIL_SENDER_EMAIL is missing');
@@ -240,13 +298,12 @@ export class PasswordResetMailService {
     }
 
     const accessToken = await this.getGmailAccessToken();
-    const content = this.buildContent({ name: params.name, resetUrl: params.resetUrl });
     const raw = this.buildRawMimeMessage({
       from,
       to: params.to,
-      subject: content.subject,
-      text: content.text,
-      html: content.html,
+      subject: params.content.subject,
+      text: params.content.text,
+      html: params.content.html,
     });
 
     const timeoutMs = Number(process.env.EMAIL_HTTP_TIMEOUT_MS ?? 15000);

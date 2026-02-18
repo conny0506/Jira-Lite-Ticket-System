@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { DragEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
@@ -52,7 +52,7 @@ type Ticket = {
   reviewNote?: string | null;
   reviewedAt?: string | null;
   reviewedBy?: Pick<TeamMember, 'id' | 'name' | 'role'> | null;
-  assignees: Array<{ member: TeamMember }>;
+  assignees: Array<{ member: TeamMember; seenAt?: string | null }>;
   submissions: Submission[];
   reviews: TicketReview[];
 };
@@ -130,29 +130,29 @@ const toLocalDateKey = (dateInput: string | Date) => {
 const STATUS_LABELS: Record<TicketStatus, string> = {
   TODO: 'Beklemede',
   IN_PROGRESS: 'Devam Ediyor',
-  IN_REVIEW: 'Ä°ncelemede',
-  DONE: 'TamamlandÄ±',
+  IN_REVIEW: 'ÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â°ncelemede',
+  DONE: 'TamamlandÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±',
 };
 
 const ROLE_LABELS: Record<TeamRole, string> = {
-  MEMBER: 'Ãœye',
-  BOARD: 'YÃ¶netim Kurulu',
+  MEMBER: 'ÃƒÆ’Ã†â€™Ãƒâ€¦Ã¢â‚¬Å“ye',
+  BOARD: 'YÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¶netim Kurulu',
   CAPTAIN: 'Kaptan',
 };
 
 const PRIORITY_LABELS: Record<TicketPriority, string> = {
-  LOW: 'DÃ¼ÅŸÃ¼k',
+  LOW: 'DÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€¦Ã‚Â¸ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼k',
   MEDIUM: 'Orta',
-  HIGH: 'YÃ¼ksek',
+  HIGH: 'YÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼ksek',
   CRITICAL: 'Kritik',
 };
 
 const SUCCESS_QUOTES = [
-  'Disiplinli ilerleme, gÃ¼nlÃ¼k motivasyondan daha gÃ¼Ã§lÃ¼dÃ¼r.',
-  'KÃ¼Ã§Ã¼k ama sÃ¼rekli adÄ±mlar, bÃ¼yÃ¼k sonuÃ§lar Ã¼retir.',
-  'MÃ¼kemmeli bekleme, bugÃ¼n baÅŸla ve geliÅŸtir.',
-  'OdaklandÄ±ÄŸÄ±n iÅŸ, gelecekteki standardÄ±nÄ± belirler.',
-  'BaÅŸarÄ± tesadÃ¼f deÄŸil, tekrarlanan doÄŸru davranÄ±ÅŸtÄ±r.',
+  'Disiplinli ilerleme, gÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼nlÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼k motivasyondan daha gÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§lÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼dÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼r.',
+  'KÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼k ama sÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼rekli adÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±mlar, bÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼yÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼k sonuÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§lar ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼retir.',
+  'MÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼kemmeli bekleme, bugÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼n baÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€¦Ã‚Â¸la ve geliÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€¦Ã‚Â¸tir.',
+  'OdaklandÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±ÃƒÆ’Ã¢â‚¬ÂÃƒâ€¦Ã‚Â¸ÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±n iÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€¦Ã‚Â¸, gelecekteki standardÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±nÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â± belirler.',
+  'BaÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€¦Ã‚Â¸arÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â± tesadÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼f deÃƒÆ’Ã¢â‚¬ÂÃƒâ€¦Ã‚Â¸il, tekrarlanan doÃƒÆ’Ã¢â‚¬ÂÃƒâ€¦Ã‚Â¸ru davranÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€¦Ã‚Â¸tÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±r.',
 ];
 
 function pickNextQuote(previousQuote: string) {
@@ -265,6 +265,8 @@ export default function HomePage() {
 
   const currentUser = authBundle?.user ?? null;
   const isCaptain = currentUser?.role === 'CAPTAIN';
+  const isBoard = currentUser?.role === 'BOARD';
+  const isMember = currentUser?.role === 'MEMBER';
   const systemProject = projects.find((p) => p.key === 'ULGEN-SYSTEM') ?? projects[0];
   const filteredTeamMembers = teamMembers.filter((m) => {
     const bySearch =
@@ -442,10 +444,10 @@ export default function HomePage() {
       ).length;
 
       return [
-        `Ã–neri: ${criticalOpen} kritik gÃ¶rev iÃ§in gÃ¼n baÅŸÄ±nda kÄ±sa plan yap.`,
-        `Ã–neri: ${unassignedOpen} atanmamÄ±ÅŸ aÃ§Ä±k gÃ¶rev var, sahiplik belirle.`,
-        `Ã–neri: Ä°ncelemede ${reviewCount} gÃ¶rev var, akÅŸamdan Ã¶nce netleÅŸtir.`,
-        `Ä°vme: BugÃ¼n ${doneToday} gÃ¶rev tamamlandÄ±.`,
+        `ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“neri: ${criticalOpen} kritik gÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¶rev iÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§in gÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼n baÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€¦Ã‚Â¸ÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±nda kÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±sa plan yap.`,
+        `ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“neri: ${unassignedOpen} atanmamÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€¦Ã‚Â¸ aÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±k gÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¶rev var, sahiplik belirle.`,
+        `ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“neri: ÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â°ncelemede ${reviewCount} gÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¶rev var, akÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€¦Ã‚Â¸amdan ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¶nce netleÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€¦Ã‚Â¸tir.`,
+        `ÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â°vme: BugÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼n ${doneToday} gÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¶rev tamamlandÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±.`,
       ];
     }
 
@@ -459,10 +461,10 @@ export default function HomePage() {
     const myTodo = myOpen.filter((x) => x.status === 'TODO').length;
 
     return [
-      `Ã–neri: Ã–nce ${myCritical} kritik gÃ¶revi ele al.`,
-      `Ã–neri: Beklemede ${myTodo} gÃ¶rev var, birini hemen baÅŸlat.`,
-      `Ã–neri: Ä°ncelemede ${myReview} gÃ¶rev var, geri bildirimleri kapat.`,
-      `Ä°vme: BugÃ¼n ${myTodaySubmissionCount} teslim gÃ¶nderdin.`,
+      `ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“neri: ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“nce ${myCritical} kritik gÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¶revi ele al.`,
+      `ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“neri: Beklemede ${myTodo} gÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¶rev var, birini hemen baÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€¦Ã‚Â¸lat.`,
+      `ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“neri: ÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â°ncelemede ${myReview} gÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¶rev var, geri bildirimleri kapat.`,
+      `ÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â°vme: BugÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼n ${myTodaySubmissionCount} teslim gÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¶nderdin.`,
     ];
   }, [currentUser, isCaptain, tickets, todayStart, myTodaySubmissionCount]);
 
@@ -487,9 +489,9 @@ export default function HomePage() {
       const score = clamp(
         82 - openTickets.length * 1.3 - criticalOpen * 3.2 - unassignedOpen * 2.4 - reviewCount * 1.1 + doneToday * 2.5,
       );
-      if (score >= 75) return { score, label: 'YÃ¼ksek', tone: 'high' as const };
+      if (score >= 75) return { score, label: 'YÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼ksek', tone: 'high' as const };
       if (score >= 50) return { score, label: 'Orta', tone: 'mid' as const };
-      return { score, label: 'DÃ¼ÅŸÃ¼k', tone: 'low' as const };
+      return { score, label: 'DÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€¦Ã‚Â¸ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼k', tone: 'low' as const };
     }
 
     const myOpen = tickets.filter(
@@ -504,9 +506,9 @@ export default function HomePage() {
     const score = clamp(
       84 - myOpen.length * 2.1 - myCritical * 3.8 - myTodo * 1.7 - myReview * 1.2 + myTodaySubmissionCount * 2.2,
     );
-    if (score >= 75) return { score, label: 'YÃ¼ksek', tone: 'high' as const };
+    if (score >= 75) return { score, label: 'YÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼ksek', tone: 'high' as const };
     if (score >= 50) return { score, label: 'Orta', tone: 'mid' as const };
-    return { score, label: 'DÃ¼ÅŸÃ¼k', tone: 'low' as const };
+    return { score, label: 'DÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€¦Ã‚Â¸ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼k', tone: 'low' as const };
   }, [currentUser, isCaptain, tickets, todayStart, myTodaySubmissionCount]);
 
   const todayText = useMemo(
@@ -894,19 +896,57 @@ export default function HomePage() {
 
   useEffect(() => {
     if (!authBundle || loading) return;
-    if (isCaptain || memberTab !== 'archive') return;
+    if (!isMember || memberTab !== 'archive') return;
     void loadMemberArchive().catch((e: Error) => setError(e.message));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     authBundle,
     loading,
-    isCaptain,
+    isMember,
     memberTab,
     memberArchiveSearch,
     memberArchiveStartDate,
     memberArchiveEndDate,
     memberArchivePage,
   ]);
+
+  useEffect(() => {
+    if (!authBundle || loading || !currentUser) return;
+    if (!isMember || memberTab !== 'my_tasks') return;
+
+    const unseenTicketIds = myTickets
+      .filter((ticket) =>
+        ticket.assignees.some(
+          (assignment) => assignment.member.id === currentUser.id && !assignment.seenAt,
+        ),
+      )
+      .map((ticket) => ticket.id);
+
+    if (unseenTicketIds.length === 0) return;
+
+    const seenAt = new Date().toISOString();
+    void apiFetch('/tickets/seen', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ticketIds: unseenTicketIds }),
+    })
+      .then(() => {
+        setTickets((prev) =>
+          prev.map((ticket) => {
+            if (!unseenTicketIds.includes(ticket.id)) return ticket;
+            return {
+              ...ticket,
+              assignees: ticket.assignees.map((assignment) =>
+                assignment.member.id === currentUser.id && !assignment.seenAt
+                  ? { ...assignment, seenAt }
+                  : assignment,
+              ),
+            };
+          }),
+        );
+      })
+      .catch((e: Error) => setError(e.message));
+  }, [authBundle, loading, currentUser, isMember, memberTab, myTickets]);
 
   useEffect(() => {
     if (!authBundle || loading) return;
@@ -993,7 +1033,7 @@ export default function HomePage() {
       setIntroQuote((prev) => pickNextQuote(prev));
       setLoginEmail('');
       setLoginPassword('');
-      showToast('success', 'GiriÅŸ baÅŸarÄ±lÄ±');
+      showToast('success', 'GiriÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€¦Ã‚Â¸ baÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€¦Ã‚Â¸arÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±lÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±');
     } catch (e) {
       const message =
         e instanceof TypeError ? NETWORK_ERROR_MESSAGE : (e as Error).message;
@@ -1133,7 +1173,7 @@ export default function HomePage() {
     setCaptainTab('overview');
     setMemberTab('my_tasks');
     setIntroStage('none');
-    showToast('success', 'Oturum kapatÄ±ldÄ±');
+    showToast('success', 'Oturum kapatÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±ldÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±');
   }
 
   async function createMember(e: FormEvent) {
@@ -1174,7 +1214,7 @@ export default function HomePage() {
       setMemberPassword('');
       setMemberRole('MEMBER');
       await loadAll();
-      showToast('success', 'Ãœye eklendi');
+      showToast('success', 'ÃƒÆ’Ã†â€™Ãƒâ€¦Ã¢â‚¬Å“ye eklendi');
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -1188,7 +1228,7 @@ export default function HomePage() {
     try {
       await apiFetch(`/team-members/${id}`, { method: 'DELETE' });
       await loadAll();
-      showToast('success', 'Ãœye pasifleÅŸtirildi');
+      showToast('success', 'ÃƒÆ’Ã†â€™Ãƒâ€¦Ã¢â‚¬Å“ye pasifleÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€¦Ã‚Â¸tirildi');
     } catch (e) {
       setError((e as Error).message);
     }
@@ -1222,7 +1262,7 @@ export default function HomePage() {
       setTicketPriority('MEDIUM');
       setTicketAssignees([]);
       await loadAll();
-      showToast('success', 'GÃ¶rev oluÅŸturuldu');
+      showToast('success', 'GÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¶rev oluÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€¦Ã‚Â¸turuldu');
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -1240,7 +1280,7 @@ export default function HomePage() {
         body: JSON.stringify({ assigneeIds }),
       });
       await loadAll();
-      showToast('success', 'Atananlar gÃ¼ncellendi');
+      showToast('success', 'Atananlar gÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼ncellendi');
     } catch (e) {
       setError((e as Error).message);
     }
@@ -1252,7 +1292,7 @@ export default function HomePage() {
     try {
       await apiFetch(`/tickets/${ticket.id}`, { method: 'DELETE' });
       await loadAll();
-      showToast('success', 'GÃ¶rev silindi');
+      showToast('success', 'GÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¶rev silindi');
     } catch (e) {
       setError((e as Error).message);
     }
@@ -1336,7 +1376,7 @@ export default function HomePage() {
         setDropPulseTicketId(ticket.id);
         setTimeout(() => setDropPulseTicketId(null), 420);
       }
-      showToast('success', 'Durum gÃ¼ncellendi');
+      showToast('success', 'Durum gÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼ncellendi');
     } catch (e) {
       setTickets(previousTickets);
       setError((e as Error).message);
@@ -1459,7 +1499,7 @@ export default function HomePage() {
       setUpload(ticket.id, { note: '', file: null });
       clearUploadFieldError(ticket.id);
       await loadAll();
-      showToast('success', 'Teslim gÃ¶nderildi');
+      showToast('success', 'Teslim gÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¶nderildi');
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -1481,7 +1521,7 @@ export default function HomePage() {
       };
     });
     if (rows.length === 0) {
-      showToast('error', 'DÄ±ÅŸa aktarma iÃ§in teslim kaydÄ± bulunamadÄ±');
+      showToast('error', 'DÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€¦Ã‚Â¸a aktarma iÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§in teslim kaydÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â± bulunamadÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±');
       return;
     }
     const escapeCsv = (value: string) => `"${value.replace(/"/g, '""')}"`;
@@ -1519,7 +1559,7 @@ export default function HomePage() {
     link.click();
     link.remove();
     URL.revokeObjectURL(url);
-    showToast('success', 'CSV dÄ±ÅŸa aktarma hazÄ±rlandÄ±');
+    showToast('success', 'CSV dÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€¦Ã‚Â¸a aktarma hazÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±rlandÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±');
   }
 
   async function downloadSubmission(submission: Submission) {
@@ -1554,10 +1594,10 @@ export default function HomePage() {
     return (
       <main className="app">
         <section className="panel loginPanel">
-          <h1>Ãœlgen AR-GE GiriÅŸ</h1>
-          <p className="muted">Ãœyeler e-posta ve ÅŸifre ile giriÅŸ yapar.</p>
+          <h1>ÃƒÆ’Ã†â€™Ãƒâ€¦Ã¢â‚¬Å“lgen AR-GE GiriÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€¦Ã‚Â¸</h1>
+          <p className="muted">ÃƒÆ’Ã†â€™Ãƒâ€¦Ã¢â‚¬Å“yeler e-posta ve ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€¦Ã‚Â¸ifre ile giriÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€¦Ã‚Â¸ yapar.</p>
           <p className="muted">
-            Ä°lk kurulum kaptan: captain@ulgen.local / 1234
+            ÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â°lk kurulum kaptan: captain@ulgen.local / 1234
           </p>
           {error && <p className="errorBox">{error}</p>}
           <form onSubmit={onLogin} className="formBlock">
@@ -1607,9 +1647,9 @@ export default function HomePage() {
               transition={{ duration: 0.35, ease: 'easeOut' }}
             >
               <p className="introTag">ULGEN://DAILY-BRIEF</p>
-              <h1>HoÅŸ geldin, {currentUser.name}.</h1>
+              <h1>HoÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€¦Ã‚Â¸ geldin, {currentUser.name}.</h1>
               <div className="introScore">
-                <p className="introScoreValue">{`GÃ¼nlÃ¼k Odak PuanÄ±: ${introScore.score}/100`}</p>
+                <p className="introScoreValue">{`GÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼nlÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼k Odak PuanÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±: ${introScore.score}/100`}</p>
                 <span
                   className={
                     introScore.tone === 'high'
@@ -1649,7 +1689,7 @@ export default function HomePage() {
                   setIntroStage('quote');
                 }}
               >
-                GiriÅŸe Devam Et
+                GiriÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€¦Ã‚Â¸e Devam Et
               </button>
             </motion.section>
           )}
@@ -1663,7 +1703,7 @@ export default function HomePage() {
               exit={{ opacity: 0 }}
               transition={{ duration: 0.3 }}
             >
-              <p className="quoteMark">â€œ</p>
+              <p className="quoteMark">ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ</p>
               <AnimatePresence mode="wait">
                 <motion.blockquote
                   key={introQuote}
@@ -1680,7 +1720,7 @@ export default function HomePage() {
                 className="introActionBtn introLightBtn"
                 onClick={() => setIntroStage('none')}
               >
-                Ã‡alÄ±ÅŸma AlanÄ±na GeÃ§
+                ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¡alÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€¦Ã‚Â¸ma AlanÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±na GeÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§
               </button>
             </motion.section>
           )}
@@ -1693,8 +1733,8 @@ export default function HomePage() {
     <main className="app">
       <section className="hero">
         <div>
-          <p className="eyebrow">Ãœlgen AR-GE Ã‡alÄ±ÅŸma AlanÄ±</p>
-          <h1>Rol BazlÄ± GÃ¶rev YÃ¶netimi</h1>
+          <p className="eyebrow">ÃƒÆ’Ã†â€™Ãƒâ€¦Ã¢â‚¬Å“lgen AR-GE ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¡alÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€¦Ã‚Â¸ma AlanÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±</p>
+          <h1>Rol BazlÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â± GÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¶rev YÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¶netimi</h1>
           <p className="muted">
             {currentUser.name} ({ROLE_LABELS[currentUser.role]}) ile aktif oturum.
           </p>
@@ -1705,7 +1745,7 @@ export default function HomePage() {
             <strong>{projects.length}</strong>
           </article>
           <article className="statCard">
-            <span>GÃ¶rev</span>
+            <span>GÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¶rev</span>
             <strong>{tickets.length}</strong>
           </article>
           <article className="statCard">
@@ -1746,7 +1786,7 @@ export default function HomePage() {
       {isNotificationOpen && (
         <section className="notificationPanel panel">
           <div className="notifHead">
-            <h3>Bildirim GeÃƒÂ§miÃ…Å¸i</h3>
+            <h3>Bildirim GeÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§miÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€¦Ã‚Â¸i</h3>
             <select
               value={notificationFilter}
               onChange={(e) =>
@@ -1759,7 +1799,7 @@ export default function HomePage() {
             </select>
           </div>
           {filteredNotificationHistory.length === 0 && (
-            <p className="muted">HenÃƒÂ¼z bildirim yok.</p>
+            <p className="muted">HenÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼z bildirim yok.</p>
           )}
           <ul className="notificationList">
             {filteredNotificationHistory.map((item) => (
@@ -1780,9 +1820,9 @@ export default function HomePage() {
       <section className="workspace">
         <aside className="sidebar panel">
           <div className="panelHead">
-            <h2>{isCaptain ? 'Kaptan Paneli' : 'Ãœye Paneli'}</h2>
+            <h2>{isCaptain ? 'Kaptan Paneli' : isBoard ? 'Yonetim Kurulu Paneli' : 'Uye Paneli'}</h2>
             <button type="button" onClick={logout}>
-              Ã‡Ä±kÄ±ÅŸ
+              ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¡ÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±kÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€¦Ã‚Â¸
             </button>
           </div>
 
@@ -1790,26 +1830,26 @@ export default function HomePage() {
             <LayoutGroup id="captain-tabs">
               <div className="tabStack">
                 <button type="button" className={captainTab === 'overview' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('overview')}><span>Genel</span>{captainTab === 'overview' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
-                <button type="button" className={captainTab === 'team' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('team')}><span>TakÄ±m</span>{captainTab === 'team' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
-                <button type="button" className={captainTab === 'tasks' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('tasks')}><span>GÃ¶revler</span>{captainTab === 'tasks' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
-                <button type="button" className={captainTab === 'submissions' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('submissions')}><span>Üye Sekmesi</span>{captainTab === 'submissions' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                <button type="button" className={captainTab === 'team' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('team')}><span>TakÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±m</span>{captainTab === 'team' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                <button type="button" className={captainTab === 'tasks' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('tasks')}><span>GÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¶revler</span>{captainTab === 'tasks' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                <button type="button" className={captainTab === 'submissions' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('submissions')}><span>ÃƒÆ’Ã†â€™Ãƒâ€¦Ã¢â‚¬Å“ye Sekmesi</span>{captainTab === 'submissions' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
                 <button type="button" className={captainTab === 'settings' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('settings')}><span>Ayarlar</span>{captainTab === 'settings' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
               </div>
             </LayoutGroup>
           ) : (
             <LayoutGroup id="member-tabs">
               <div className="tabStack">
-                <button type="button" className={memberTab === 'my_tasks' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('my_tasks')}><span>Bana Atananlar</span>{memberTab === 'my_tasks' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
-                <button type="button" className={memberTab === 'my_submissions' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('my_submissions')}><span>Teslimlerim</span>{memberTab === 'my_submissions' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
-                <button type="button" className={memberTab === 'timeline' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('timeline')}><span>AkÄ±ÅŸ</span>{memberTab === 'timeline' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
-                <button type="button" className={memberTab === 'archive' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('archive')}><span>Arsiv</span>{memberTab === 'archive' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                <button type="button" className={memberTab === 'my_tasks' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('my_tasks')}><span>{isBoard ? 'Gorev Gorunumu' : 'Bana Atananlar'}</span>{memberTab === 'my_tasks' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                {!isBoard && <button type="button" className={memberTab === 'my_submissions' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('my_submissions')}><span>Teslimlerim</span>{memberTab === 'my_submissions' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>}
+                {!isBoard && <button type="button" className={memberTab === 'timeline' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('timeline')}><span>Akis</span>{memberTab === 'timeline' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>}
+                {!isBoard && <button type="button" className={memberTab === 'archive' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('archive')}><span>Arsiv</span>{memberTab === 'archive' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>}
                 <button type="button" className={memberTab === 'settings' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('settings')}><span>Ayarlar</span>{memberTab === 'settings' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
               </div>
             </LayoutGroup>
           )}
 
           <p className="muted">
-            Sistem Projesi: {systemProject ? `${systemProject.key} - ${systemProject.name}` : 'HazÄ±rlanÄ±yor'}
+            Sistem Projesi: {systemProject ? `${systemProject.key} - ${systemProject.name}` : 'HazÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±rlanÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±yor'}
           </p>
         </aside>
 
@@ -1836,18 +1876,18 @@ export default function HomePage() {
             >
             <div className="cardGrid">
               <article className="infoCard">
-                <h3>TakÄ±m DaÄŸÄ±lÄ±mÄ±</h3>
+                <h3>TakÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±m DaÃƒÆ’Ã¢â‚¬ÂÃƒâ€¦Ã‚Â¸ÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±lÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±mÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±</h3>
                 <p>
                   Kaptan {teamMembers.filter((x) => x.role === 'CAPTAIN').length} | Kurul{' '}
-                  {teamMembers.filter((x) => x.role === 'BOARD').length} | Ãœye{' '}
+                  {teamMembers.filter((x) => x.role === 'BOARD').length} | ÃƒÆ’Ã†â€™Ãƒâ€¦Ã¢â‚¬Å“ye{' '}
                   {teamMembers.filter((x) => x.role === 'MEMBER').length}
                 </p>
               </article>
               <article className="infoCard">
-                <h3>Durum Ã–zeti</h3>
+                <h3>Durum ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“zeti</h3>
                 <p>
                   Beklemede {tickets.filter((x) => x.status === 'TODO').length} | Devam Ediyor{' '}
-                  {tickets.filter((x) => x.status === 'IN_PROGRESS').length} | TamamlandÄ±{' '}
+                  {tickets.filter((x) => x.status === 'IN_PROGRESS').length} | TamamlandÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±{' '}
                   {tickets.filter((x) => x.status === 'DONE').length}
                 </p>
               </article>
@@ -1904,7 +1944,7 @@ export default function HomePage() {
             <div className="teamBlock">
               <div className="filterRow">
                 <input
-                  placeholder="Ãœye ara (ad/e-posta)"
+                  placeholder="ÃƒÆ’Ã†â€™Ãƒâ€¦Ã¢â‚¬Å“ye ara (ad/e-posta)"
                   value={teamSearch}
                   onChange={(e) => setTeamSearch(e.target.value)}
                 />
@@ -1914,10 +1954,10 @@ export default function HomePage() {
                     setTeamRoleFilter(e.target.value as 'ALL' | TeamRole)
                   }
                 >
-                  <option value="ALL">TÃ¼m Roller</option>
+                  <option value="ALL">TÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼m Roller</option>
                   <option value="CAPTAIN">Kaptan</option>
                   <option value="BOARD">Kurul</option>
-                  <option value="MEMBER">Ãœye</option>
+                  <option value="MEMBER">ÃƒÆ’Ã†â€™Ãƒâ€¦Ã¢â‚¬Å“ye</option>
                 </select>
               </div>
               <form onSubmit={createMember} className="formBlock">
@@ -1969,7 +2009,7 @@ export default function HomePage() {
                       <div className="muted">{m.email}</div>
                     </div>
                     <button type="button" onClick={() => deactivateMember(m.id)}>
-                      PasifleÅŸtir
+                      PasifleÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€¦Ã‚Â¸tir
                     </button>
                   </li>
                 ))}
@@ -1989,7 +2029,7 @@ export default function HomePage() {
             >
               <div className="filterRow">
                 <input
-                  placeholder="GÃ¶rev ara"
+                  placeholder="GÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¶rev ara"
                   value={taskSearch}
                   onChange={(e) => setTaskSearch(e.target.value)}
                 />
@@ -1999,7 +2039,7 @@ export default function HomePage() {
                     setTaskStatusFilter(e.target.value as 'ALL' | TicketStatus)
                   }
                 >
-                  <option value="ALL">TÃ¼m Durumlar</option>
+                  <option value="ALL">TÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼m Durumlar</option>
                   {BOARD_STATUS_LIST.map((s) => (
                     <option key={s} value={s}>
                       {STATUS_LABELS[s]}
@@ -2012,7 +2052,7 @@ export default function HomePage() {
                     setTaskPriorityFilter(e.target.value as 'ALL' | TicketPriority)
                   }
                 >
-                  <option value="ALL">TÃ¼m Ã–ncelikler</option>
+                  <option value="ALL">TÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼m ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“ncelikler</option>
                   <option value="LOW">{PRIORITY_LABELS.LOW}</option>
                   <option value="MEDIUM">{PRIORITY_LABELS.MEDIUM}</option>
                   <option value="HIGH">{PRIORITY_LABELS.HIGH}</option>
@@ -2022,7 +2062,7 @@ export default function HomePage() {
                   value={taskAssigneeFilter}
                   onChange={(e) => setTaskAssigneeFilter(e.target.value)}
                 >
-                  <option value="ALL">TÃ¼m Atananlar</option>
+                  <option value="ALL">TÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼m Atananlar</option>
                   {teamMembers.map((m) => (
                     <option key={m.id} value={m.id}>
                       {m.name}
@@ -2031,9 +2071,9 @@ export default function HomePage() {
                 </select>
               </div>
               <div className="panelHead">
-                <h2>GÃ¶revler</h2>
+                <h2>GÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¶revler</h2>
                 <button type="button" className={taskLayout === 'board' ? 'tabBtn active' : 'tabBtn'} onClick={() => setTaskLayout(taskLayout === 'board' ? 'list' : 'board')}>
-                  {taskLayout === 'board' ? 'Listeye GeÃ§' : 'Panoya GeÃ§'}
+                  {taskLayout === 'board' ? 'Listeye GeÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§' : 'Panoya GeÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§'}
                 </button>
               </div>
               <div className="bulkActionBar">
@@ -2136,9 +2176,9 @@ export default function HomePage() {
                               draggable
                               onDragStart={() => onBoardDragStart(ticket.id)}
                               onDragEnd={onBoardDragEnd}
-                              title="Durum deÄŸiÅŸtirmek iÃ§in sÃ¼rÃ¼kle"
+                              title="Durum deÃƒÆ’Ã¢â‚¬ÂÃƒâ€¦Ã‚Â¸iÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€¦Ã‚Â¸tirmek iÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§in sÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼rÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼kle"
                             >
-                              <span>â‹®â‹®</span>
+                              <span>ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¹ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â®ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¹ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â®</span>
                             </button>
                             <label className="selectTicketRow">
                               <input
@@ -2155,7 +2195,10 @@ export default function HomePage() {
                     <span>{ticket.status === 'TODO' ? STATUS_LABELS.IN_PROGRESS : STATUS_LABELS[ticket.status]}</span>
                   </div>
                             <p className="muted">
-                              Atananlar: {ticket.assignees.map((x) => x.member.name).join(', ') || 'Yok'}
+                              Atananlar:{' '}
+                              {ticket.assignees
+                                .map((x) => `${x.member.name} (${x.seenAt ? 'goruldu' : 'gorulmedi'})`)
+                                .join(', ') || 'Yok'}
                             </p>
                             <div className="projectActions">
                               <select multiple value={ticket.assignees.map((x) => x.member.id)} onChange={(e) => updateTicketAssignees(ticket, Array.from(e.currentTarget.selectedOptions).map((o) => o.value))}>
@@ -2166,7 +2209,7 @@ export default function HomePage() {
                                 ))}
                               </select>
                               <button type="button" onClick={() => deleteTicket(ticket)}>
-                                GÃ¶revi Sil
+                                GÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¶revi Sil
                               </button>
                             </div>
                           </article>
@@ -2180,9 +2223,9 @@ export default function HomePage() {
                   <thead>
                     <tr>
                       <th>Sec</th>
-                      <th>BaÅŸlÄ±k</th>
+                      <th>BaÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€¦Ã‚Â¸lÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±k</th>
                       <th>Durum</th>
-                      <th>Ã–ncelik</th>
+                      <th>ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“ncelik</th>
                       <th>Atananlar</th>
                     </tr>
                   </thead>
@@ -2199,7 +2242,11 @@ export default function HomePage() {
                         <td>{ticket.title}</td>
                         <td>{STATUS_LABELS[ticket.status]}</td>
                         <td>{PRIORITY_LABELS[ticket.priority]}</td>
-                        <td>{ticket.assignees.map((a) => a.member.name).join(', ')}</td>
+                        <td>
+                          {ticket.assignees
+                            .map((a) => `${a.member.name} (${a.seenAt ? 'goruldu' : 'gorulmedi'})`)
+                            .join(', ')}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -2261,6 +2308,7 @@ export default function HomePage() {
                             {ticket.assignees.map((x) => x.member.name).join(', ') || 'Atanan yok'} | Son teslim:{' '}
                             {latest ? new Date(latest.createdAt).toLocaleString('tr-TR') : 'Yok'}
                           </p>
+                          {latest?.note && <p>Teslim aciklamasi: {latest.note}</p>}
                           {latest && (
                             <button type="button" onClick={() => downloadSubmission(latest)}>
                               Son Teslimi Indir
@@ -2342,7 +2390,46 @@ export default function HomePage() {
             </motion.div>
           )}
 
-          {!loading && !isCaptain && memberTab === 'my_tasks' && (
+          {!loading && isBoard && memberTab === 'my_tasks' && (
+            <motion.div
+              key="board-readonly-tasks"
+              className="tabScene"
+              initial={{ opacity: 0, y: 10, scale: 0.99 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.99 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+            >
+              <div className="filterRow">
+                <input
+                  placeholder="Gorev ara"
+                  value={taskSearch}
+                  onChange={(e) => setTaskSearch(e.target.value)}
+                />
+              </div>
+              <table className="taskTable">
+                <thead>
+                  <tr>
+                    <th>Baslik</th>
+                    <th>Durum</th>
+                    <th>Oncelik</th>
+                    <th>Atananlar</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredSelectedProjectTickets.map((ticket) => (
+                    <tr key={ticket.id}>
+                      <td>{ticket.title}</td>
+                      <td>{STATUS_LABELS[ticket.status]}</td>
+                      <td>{PRIORITY_LABELS[ticket.priority]}</td>
+                      <td>{ticket.assignees.map((a) => a.member.name).join(', ') || 'Yok'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </motion.div>
+          )}
+
+          {!loading && isMember && memberTab === 'my_tasks' && (
             <motion.div
               key="member-tasks"
               className="tabScene"
@@ -2353,7 +2440,7 @@ export default function HomePage() {
             >
               <div className="filterRow">
                 <input
-                  placeholder="GÃ¶rev ara"
+                  placeholder="GÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¶rev ara"
                   value={memberTaskSearch}
                   onChange={(e) => setMemberTaskSearch(e.target.value)}
                 />
@@ -2368,7 +2455,7 @@ export default function HomePage() {
                     <span>{ticket.status === 'TODO' ? STATUS_LABELS.IN_PROGRESS : STATUS_LABELS[ticket.status]}</span>
                   </div>
                   <div className="submissionBox">
-                    <h4>Teslim DosyasÄ±</h4>
+                    <h4>Teslim DosyasÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â±</h4>
                     <input
                       type="file"
                       accept=".pdf,.doc,.docx,.ppt,.pptx"
@@ -2402,7 +2489,7 @@ export default function HomePage() {
             </motion.div>
           )}
 
-          {!loading && !isCaptain && memberTab === 'my_submissions' && (
+          {!loading && isMember && memberTab === 'my_submissions' && (
             <motion.div
               key="member-submissions"
               className="tabScene"
@@ -2413,7 +2500,7 @@ export default function HomePage() {
             >
               <div className="filterRow">
                 <input
-                  placeholder="Teslim dosyasÄ± ara"
+                  placeholder="Teslim dosyasÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â± ara"
                   value={memberSubmissionSearch}
                   onChange={(e) => setMemberSubmissionSearch(e.target.value)}
                 />
@@ -2429,7 +2516,7 @@ export default function HomePage() {
                     <p>{ticket.title}</p>
                   </div>
                   <button type="button" onClick={() => downloadSubmission(submission)}>
-                    Ä°ndir
+                    ÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â°ndir
                   </button>
                 </li>
               ))}
@@ -2437,7 +2524,7 @@ export default function HomePage() {
             </motion.div>
           )}
 
-          {!loading && !isCaptain && memberTab === 'timeline' && (
+          {!loading && isMember && memberTab === 'timeline' && (
             <motion.ul
               key="member-timeline"
               className="timeline tabScene"
@@ -2454,7 +2541,7 @@ export default function HomePage() {
               ))}
             </motion.ul>
           )}
-          {!loading && !isCaptain && memberTab === 'archive' && (
+          {!loading && isMember && memberTab === 'archive' && (
             <motion.div
               key="member-archive"
               className="tabScene"
@@ -2615,7 +2702,7 @@ export default function HomePage() {
                     <option value="en">English</option>
                   </select>
                   <button type="submit" disabled={isUpdatingSettings}>
-                    {isUpdatingSettings ? 'Kaydediliyor...' : 'Ayarları Kaydet'}
+                    {isUpdatingSettings ? 'Kaydediliyor...' : 'AyarlarÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â± Kaydet'}
                   </button>
                 </form>
 

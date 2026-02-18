@@ -2,7 +2,6 @@ import { TicketPriority } from '@prisma/client';
 import {
   ArrayMaxSize,
   IsArray,
-  IsDateString,
   IsEnum,
   IsOptional,
   IsString,
@@ -33,6 +32,7 @@ export class CreateTicketDto {
   @IsEnum(TicketPriority)
   priority?: TicketPriority;
 
-  @IsDateString()
+  @IsString()
+  @Length(1, 100)
   dueAt!: string;
 }

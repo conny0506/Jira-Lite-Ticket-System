@@ -197,6 +197,9 @@ export class TicketsService {
 
     const assigneeIds = [...new Set(dto.assigneeIds ?? [])];
     await this.ensureActiveMembers(assigneeIds);
+    if (!dto.dueAt || dto.dueAt.trim().length === 0) {
+      throw new BadRequestException('Son teslim tarihi zorunludur');
+    }
     const dueAt = new Date(dto.dueAt);
     if (Number.isNaN(dueAt.getTime())) {
       throw new BadRequestException('Son teslim tarihi gecersiz');

@@ -9,6 +9,10 @@ Recommended stack:
 - API hosting: Render / Railway / Fly.io
 - Web hosting: Vercel
 
+This repo includes:
+- `render.yaml` for API deployment on Render
+- `apps/web/vercel.json` for Web deployment on Vercel
+
 ## 1) Create Cloud Services
 
 1. Create a Postgres database and copy the connection URL.
@@ -36,6 +40,10 @@ JWT_SECRET=change-this-to-a-strong-random-secret
 ACCESS_TOKEN_TTL_SECONDS=300
 REFRESH_TOKEN_TTL_DAYS=14
 ONE_SESSION_PER_USER=true
+COOKIE_SAME_SITE=none
+COOKIE_SECURE=true
+# optional (example: .your-domain.com)
+COOKIE_DOMAIN=
 
 BOOTSTRAP_CAPTAIN_EMAIL=captain@ulgen.local
 BOOTSTRAP_CAPTAIN_PASSWORD=1234
@@ -53,6 +61,9 @@ S3_SIGNED_URL_TTL_SECONDS=300
 Notes:
 - `WEB_ORIGIN` supports comma-separated values if needed:
   - `https://your-web-domain.com,https://www.your-web-domain.com`
+- If API and Web are on different domains, keep:
+  - `COOKIE_SAME_SITE=none`
+  - `COOKIE_SECURE=true`
 - If you want local disk storage on server, use:
   - `STORAGE_DRIVER=local`
   - This is not recommended for production.
@@ -75,12 +86,36 @@ npm run prisma:generate -w @jira-lite/api
 npm run prisma:migrate -w @jira-lite/api
 ```
 
+If your hosting provider supports one-time post-deploy command, use:
+
+```bash
+npx prisma migrate deploy --schema apps/api/prisma/schema.prisma
+```
+
+Note:
+- `render.yaml` uses `npm run start:prod -w @jira-lite/api`, which already runs
+  `prisma migrate deploy` before starting the API.
+
 ## 5) Health Check
 
 After deploy:
 
 - API health: `https://your-api-domain.com/health`
 - Web: `https://your-web-domain.com`
+
+## 5.1) Fast Path (Render + Vercel)
+
+1. Push this repository to GitHub.
+2. Render:
+   - New + Blueprint -> select repo -> it detects `render.yaml`.
+   - Set missing secret envs (`DATABASE_URL`, `REDIS_URL`, `JWT_SECRET`, S3 keys, etc).
+   - Deploy and confirm `https://<render-domain>/health` is 200.
+3. Vercel:
+   - Import repo, set Root Directory to `apps/web`.
+   - Add env: `NEXT_PUBLIC_API_URL=https://<render-domain>`.
+   - Deploy and get web URL.
+4. Update API `WEB_ORIGIN` with Vercel URL (and custom domain if used), then redeploy API.
+5. Re-test login, refresh, file upload/download flows.
 
 ## 6) Storage Migration (Important)
 
@@ -101,4 +136,3 @@ If old local files are important, upload them to the bucket and update correspon
 - Do not commit production `.env` files.
 - Enable backups for Postgres.
 - Enable bucket lifecycle and access controls.
-

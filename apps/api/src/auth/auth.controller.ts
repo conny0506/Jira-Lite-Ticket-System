@@ -10,10 +10,26 @@ export class AuthController {
 
   private getCookieOptions() {
     const isProd = process.env.NODE_ENV === 'production';
+    const sameSiteEnv = (process.env.COOKIE_SAME_SITE ?? (isProd ? 'none' : 'lax'))
+      .toLowerCase()
+      .trim();
+    const sameSite =
+      sameSiteEnv === 'strict' || sameSiteEnv === 'lax' || sameSiteEnv === 'none'
+        ? sameSiteEnv
+        : isProd
+          ? 'none'
+          : 'lax';
+    const secure =
+      (process.env.COOKIE_SECURE ?? (isProd || sameSite === 'none' ? 'true' : 'false'))
+        .toLowerCase()
+        .trim() === 'true';
+    const cookieDomain = process.env.COOKIE_DOMAIN?.trim();
+
     return {
       httpOnly: true,
-      secure: isProd,
-      sameSite: (isProd ? 'strict' : 'lax') as 'strict' | 'lax',
+      secure,
+      sameSite: sameSite as 'strict' | 'lax' | 'none',
+      domain: cookieDomain || undefined,
       path: '/auth',
       maxAge: Number(process.env.REFRESH_TOKEN_TTL_DAYS ?? 14) * 24 * 60 * 60 * 1000,
     };

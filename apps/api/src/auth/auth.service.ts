@@ -60,7 +60,7 @@ export class AuthService {
     return randomBytes(48).toString('base64url');
   }
 
-  async login(email: string, password: string) {
+  async login(email: string, password: string, meta?: { ip?: string; userAgent?: string }) {
     const member = await this.prisma.teamMember.findUnique({
       where: { email: email.toLowerCase().trim() },
       select: {
@@ -102,6 +102,22 @@ export class AuthService {
         expiresAt: new Date(Date.now() + this.refreshTtlDays * 24 * 60 * 60 * 1000),
       },
     });
+    await this.prisma.$transaction([
+      this.prisma.teamMember.update({
+        where: { id: member.id },
+        data: {
+          lastLoginAt: new Date(),
+          lastLoginIp: meta?.ip?.slice(0, 120) || null,
+        },
+      }),
+      this.prisma.loginAudit.create({
+        data: {
+          memberId: member.id,
+          ip: meta?.ip?.slice(0, 120) || null,
+          userAgent: meta?.userAgent?.slice(0, 300) || null,
+        },
+      }),
+    ]);
     const accessTokenExpiresAt = new Date(Date.now() + this.accessTtlSeconds * 1000);
 
     return {
@@ -269,5 +285,126 @@ export class AuthService {
       throw new UnauthorizedException('Aktif kullanici bulunamadi');
     }
     return member;
+  }
+
+  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    const member = await this.prisma.teamMember.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        active: true,
+        passwordHash: true,
+      },
+    });
+    if (!member || !member.active) {
+      throw new UnauthorizedException('Aktif kullanici bulunamadi');
+    }
+    const isValid = await this.verifyPassword(member.passwordHash, currentPassword);
+    if (!isValid) {
+      throw new UnauthorizedException('Mevcut sifre hatali');
+    }
+    if (currentPassword === newPassword) {
+      throw new BadRequestException('Yeni sifre mevcut sifre ile ayni olamaz');
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.teamMember.update({
+        where: { id: member.id },
+        data: {
+          passwordHash: await this.hashPassword(newPassword),
+          passwordResetTokenHash: null,
+          passwordResetExpiresAt: null,
+        },
+      }),
+      this.prisma.authSession.updateMany({
+        where: { memberId: member.id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      }),
+    ]);
+
+    return { ok: true };
+  }
+
+  async getProfile(userId: string) {
+    const member = await this.prisma.teamMember.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        active: true,
+        language: true,
+        notificationEmailEnabled: true,
+        notificationAssignmentEnabled: true,
+        notificationReviewEnabled: true,
+        lastLoginAt: true,
+        lastLoginIp: true,
+      },
+    });
+    if (!member || !member.active) {
+      throw new UnauthorizedException('Aktif kullanici bulunamadi');
+    }
+    return member;
+  }
+
+  async updateProfile(userId: string, name: string) {
+    return this.prisma.teamMember.update({
+      where: { id: userId },
+      data: { name: name.trim() },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        active: true,
+      },
+    });
+  }
+
+  async updateSettings(
+    userId: string,
+    payload: {
+      language?: 'tr' | 'en';
+      notificationEmailEnabled?: boolean;
+      notificationAssignmentEnabled?: boolean;
+      notificationReviewEnabled?: boolean;
+    },
+  ) {
+    return this.prisma.teamMember.update({
+      where: { id: userId },
+      data: {
+        ...(payload.language ? { language: payload.language } : {}),
+        ...(typeof payload.notificationEmailEnabled === 'boolean'
+          ? { notificationEmailEnabled: payload.notificationEmailEnabled }
+          : {}),
+        ...(typeof payload.notificationAssignmentEnabled === 'boolean'
+          ? { notificationAssignmentEnabled: payload.notificationAssignmentEnabled }
+          : {}),
+        ...(typeof payload.notificationReviewEnabled === 'boolean'
+          ? { notificationReviewEnabled: payload.notificationReviewEnabled }
+          : {}),
+      },
+      select: {
+        language: true,
+        notificationEmailEnabled: true,
+        notificationAssignmentEnabled: true,
+        notificationReviewEnabled: true,
+      },
+    });
+  }
+
+  async getLoginHistory(userId: string) {
+    return this.prisma.loginAudit.findMany({
+      where: { memberId: userId },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+      select: {
+        id: true,
+        ip: true,
+        userAgent: true,
+        createdAt: true,
+      },
+    });
   }
 }

@@ -27,6 +27,11 @@ enum TeamRole {
   CAPTAIN
 }
 
+enum TicketReviewAction {
+  APPROVED
+  REJECTED
+}
+
 model Project {
   id          String   @id @default(cuid())
   key         String   @unique
@@ -46,11 +51,16 @@ model Ticket {
   status      TicketStatus       @default(TODO)
   priority    TicketPriority     @default(MEDIUM)
   completedAt DateTime?
+  reviewNote  String?
+  reviewedAt  DateTime?
+  reviewedById String?
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
   project     Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  reviewedBy  TeamMember?        @relation("TicketReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
   assignees   TicketAssignment[]
   submissions Submission[]
+  reviews     TicketReview[]
 }
 
 model TeamMember {
@@ -60,6 +70,12 @@ model TeamMember {
   passwordHash     String       @default("03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4")
   passwordResetTokenHash String?
   passwordResetExpiresAt DateTime?
+  language         String       @default("tr")
+  notificationEmailEnabled      Boolean @default(true)
+  notificationAssignmentEnabled Boolean @default(true)
+  notificationReviewEnabled     Boolean @default(true)
+  lastLoginAt      DateTime?
+  lastLoginIp      String?
   role             TeamRole     @default(MEMBER)
   active           Boolean      @default(true)
   createdAt        DateTime     @default(now())
@@ -68,6 +84,9 @@ model TeamMember {
   projectAssignments ProjectAssignment[]
   submissions      Submission[]
   authSessions     AuthSession[]
+  reviewedTickets  Ticket[]      @relation("TicketReviewedBy")
+  ticketReviews    TicketReview[]
+  loginAudits      LoginAudit[]
 
   @@index([passwordResetTokenHash])
 }
@@ -115,4 +134,28 @@ model AuthSession {
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt
   member           TeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+}
+
+model TicketReview {
+  id          String             @id @default(cuid())
+  ticketId    String
+  reviewerId  String
+  action      TicketReviewAction
+  reason      String?
+  createdAt   DateTime           @default(now())
+  ticket      Ticket             @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  reviewer    TeamMember         @relation(fields: [reviewerId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId, createdAt])
+}
+
+model LoginAudit {
+  id         String     @id @default(cuid())
+  memberId   String
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime   @default(now())
+  member     TeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([memberId, createdAt])
 }

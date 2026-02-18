@@ -43,6 +43,14 @@ services:
         value: "30"
       - key: PASSWORD_RESET_URL_BASE
         sync: false
+      - key: EMAIL_PROVIDER
+        value: resend
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM
+        sync: false
+      - key: EMAIL_HTTP_TIMEOUT_MS
+        value: "15000"
       - key: SMTP_HOST
         sync: false
       - key: SMTP_PORT

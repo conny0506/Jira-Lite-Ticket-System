@@ -572,11 +572,17 @@ button:disabled {
 }
 
 .textBtn {
+  display: block;
+  width: 100%;
+  text-align: center;
+  padding: 10px 11px;
+  border-radius: 10px;
   margin-top: 8px;
   background: transparent;
   border: 1px dashed rgba(110, 200, 255, 0.45);
   color: #9edaff;
   font-weight: 600;
+  text-decoration: none;
 }
 
 .textBtn:hover {

@@ -2,6 +2,7 @@
 
 import { DragEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
+import Link from 'next/link';
 
 type TeamRole = 'MEMBER' | 'BOARD' | 'CAPTAIN';
 type TicketStatus = 'TODO' | 'IN_PROGRESS' | 'IN_REVIEW' | 'DONE';
@@ -64,7 +65,6 @@ type IntroStage = 'none' | 'terminal' | 'quote';
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 const TYPEWRITER_CHARS_PER_SECOND = 120;
 const QUOTE_ROTATE_MS = 5000;
-const FORGOT_PASSWORD_TIMEOUT_MS = 15000;
 const NETWORK_ERROR_MESSAGE = 'Sunucuya ulasilamadi. Lutfen baglantiyi ve API adresini kontrol edin.';
 const MAX_UPLOAD_SIZE_BYTES = 25 * 1024 * 1024;
 const ALLOWED_UPLOAD_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'ppt', 'pptx']);
@@ -125,10 +125,6 @@ export default function HomePage() {
 
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
-  const [forgotEmail, setForgotEmail] = useState('');
-  const [forgotFieldError, setForgotFieldError] = useState('');
-  const [isForgotMode, setIsForgotMode] = useState(false);
-  const [isSendingResetLink, setIsSendingResetLink] = useState(false);
 
   const [memberName, setMemberName] = useState('');
   const [memberEmail, setMemberEmail] = useState('');
@@ -828,44 +824,6 @@ export default function HomePage() {
     }
   }
 
-  async function onForgotPassword(e: FormEvent) {
-    e.preventDefault();
-    if (isSendingResetLink) return;
-    setForgotFieldError('');
-    setError('');
-    const email = forgotEmail.trim().toLowerCase();
-    if (!email.includes('@')) {
-      setForgotFieldError('Gecerli bir e-posta giriniz');
-      return;
-    }
-    try {
-      setIsSendingResetLink(true);
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), FORGOT_PASSWORD_TIMEOUT_MS);
-      const res = await fetch(`${API_URL}/auth/forgot-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
-        signal: controller.signal,
-      });
-      clearTimeout(timer);
-      if (!res.ok) throw new Error(await extractErrorMessage(res));
-      setForgotEmail('');
-      setIsForgotMode(false);
-      showToast('success', 'Sifre sifirlama baglantisi gonderildi');
-    } catch (e) {
-      const message =
-        e instanceof DOMException && e.name === 'AbortError'
-          ? 'Sifre sifirlama istegi zaman asimina ugradi. SMTP ayarlarini kontrol edin.'
-          : e instanceof TypeError
-            ? NETWORK_ERROR_MESSAGE
-            : (e as Error).message;
-      setError(message);
-    } finally {
-      setIsSendingResetLink(false);
-    }
-  }
-
   async function logout() {
     try {
       if (authBundle) {
@@ -1303,35 +1261,9 @@ export default function HomePage() {
               {isLoggingIn ? 'Giris yapiliyor...' : 'Giris Yap'}
             </button>
           </form>
-          <button
-            type="button"
-            className="textBtn"
-            onClick={() => {
-              setIsForgotMode((prev) => !prev);
-              setForgotFieldError('');
-            }}
-          >
-            {isForgotMode ? 'Giris formuna don' : 'Sifremi unuttum'}
-          </button>
-          {isForgotMode && (
-            <form onSubmit={onForgotPassword} className="formBlock forgotForm">
-              <input
-                placeholder="Kayitli e-posta"
-                value={forgotEmail}
-                onChange={(e) => {
-                  setForgotEmail(e.target.value);
-                  setForgotFieldError('');
-                }}
-                required
-              />
-              {forgotFieldError && <p className="fieldError">{forgotFieldError}</p>}
-              <button type="submit" disabled={isSendingResetLink}>
-                {isSendingResetLink
-                  ? 'Baglanti gonderiliyor...'
-                  : 'Sifre sifirlama baglantisi gonder'}
-              </button>
-            </form>
-          )}
+          <Link href="/forgot-password" className="textBtn inlineLink">
+            Sifremi unuttum
+          </Link>
         </section>
       </main>
     );

@@ -204,9 +204,10 @@ export class AuthService {
         name: member.name,
         resetUrl,
       });
-    } catch {
+    } catch (error) {
+      const detail = (error as Error).message ? ` (${(error as Error).message})` : '';
       throw new ServiceUnavailableException(
-        'Sifre sifirlama e-postasi gonderilemedi. SMTP ayarlarini kontrol edin',
+        `Sifre sifirlama e-postasi gonderilemedi. SMTP ayarlarini kontrol edin${detail}`,
       );
     }
 

@@ -19,6 +19,7 @@ import { TicketsService } from './tickets.service';
 import { CreateSubmissionDto } from './dto/create-submission.dto';
 import { BulkUpdateTicketStatusDto } from './dto/bulk-update-ticket-status.dto';
 import { UpdateTicketAssigneeDto } from './dto/update-ticket-assignee.dto';
+import { ReviewTicketDto } from './dto/review-ticket.dto';
 import { UpdateTicketStatusDto } from './dto/update-ticket-status.dto';
 
 @Controller('tickets')
@@ -31,6 +32,26 @@ export class TicketsController {
     @Query('projectId') projectId?: string,
   ) {
     return this.ticketsService.list(actorId, projectId);
+  }
+
+  @Get('archive')
+  archive(
+    @CurrentUserId() actorId: string,
+    @Query('memberId') memberId?: string,
+    @Query('q') q?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.ticketsService.archiveList(actorId, {
+      memberId,
+      q,
+      from,
+      to,
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+    });
   }
 
   @Post()
@@ -62,6 +83,15 @@ export class TicketsController {
     @Body() dto: UpdateTicketAssigneeDto,
   ) {
     return this.ticketsService.updateAssignee(actorId, id, dto);
+  }
+
+  @Patch(':id/review')
+  review(
+    @CurrentUserId() actorId: string,
+    @Param('id') id: string,
+    @Body() dto: ReviewTicketDto,
+  ) {
+    return this.ticketsService.review(actorId, id, dto);
   }
 
   @Delete(':id')

@@ -1,9 +1,9 @@
-import {
+﻿import {
   BadRequestException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { TeamRole } from '@prisma/client';
+import { TeamRole, TicketReviewAction as PrismaTicketReviewAction } from '@prisma/client';
 import { AuthService } from '../auth/auth.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { QueueService } from '../queue/queue.service';
@@ -11,13 +11,14 @@ import { StorageService } from '../storage/storage.service';
 import { BulkUpdateTicketStatusDto } from './dto/bulk-update-ticket-status.dto';
 import { CreateSubmissionDto } from './dto/create-submission.dto';
 import { CreateTicketDto } from './dto/create-ticket.dto';
+import { ReviewTicketDto, TicketReviewAction } from './dto/review-ticket.dto';
 import { UpdateTicketAssigneeDto } from './dto/update-ticket-assignee.dto';
 import { UpdateTicketStatusDto } from './dto/update-ticket-status.dto';
 
 @Injectable()
 export class TicketsService {
   private readonly systemProjectKey = 'ULGEN-SYSTEM';
-  private readonly systemProjectName = 'Ülgen AR-GE Görev Merkezi';
+  private readonly systemProjectName = 'Ãœlgen AR-GE GÃ¶rev Merkezi';
   private readonly maxUploadSizeBytes = 25 * 1024 * 1024;
   private readonly allowedExtensions = new Set(['.pdf', '.doc', '.docx', '.ppt', '.pptx']);
 
@@ -71,8 +72,103 @@ export class TicketsService {
             submittedBy: { select: { id: true, name: true, role: true } },
           },
         },
+        reviewedBy: {
+          select: { id: true, name: true, role: true },
+        },
+        reviews: {
+          orderBy: { createdAt: 'desc' },
+          take: 5,
+          include: {
+            reviewer: { select: { id: true, name: true, role: true } },
+          },
+        },
       },
     });
+  }
+
+  async archiveList(
+    actorId: string,
+    query: {
+      memberId?: string;
+      q?: string;
+      from?: string;
+      to?: string;
+      page?: number;
+      pageSize?: number;
+    },
+  ) {
+    const actor = await this.authService.getActorOrThrow(actorId);
+    const page = Math.max(1, Number(query.page ?? 1));
+    const pageSize = Math.min(100, Math.max(1, Number(query.pageSize ?? 20)));
+    const skip = (page - 1) * pageSize;
+    const effectiveMemberId =
+      actor.role === TeamRole.CAPTAIN ? query.memberId : actor.id;
+    const from = query.from ? new Date(`${query.from}T00:00:00`) : null;
+    const to = query.to ? new Date(`${query.to}T23:59:59.999`) : null;
+    const search = query.q?.trim().toLowerCase() ?? '';
+
+    const where = {
+      status: 'DONE' as const,
+      ...(effectiveMemberId
+        ? {
+            assignees: {
+              some: { memberId: effectiveMemberId },
+            },
+          }
+        : {}),
+      ...(from || to
+        ? {
+            completedAt: {
+              ...(from ? { gte: from } : {}),
+              ...(to ? { lte: to } : {}),
+            },
+          }
+        : {}),
+      ...(search
+        ? {
+            OR: [
+              { title: { contains: search, mode: 'insensitive' as const } },
+              { description: { contains: search, mode: 'insensitive' as const } },
+              { reviewNote: { contains: search, mode: 'insensitive' as const } },
+            ],
+          }
+        : {}),
+    };
+
+    const [total, items] = await Promise.all([
+      this.prisma.ticket.count({ where }),
+      this.prisma.ticket.findMany({
+        where,
+        orderBy: { completedAt: 'desc' },
+        skip,
+        take: pageSize,
+        include: {
+          assignees: {
+            include: {
+              member: { select: { id: true, name: true, role: true, active: true } },
+            },
+          },
+          reviewedBy: {
+            select: { id: true, name: true, role: true },
+          },
+          reviews: {
+            orderBy: { createdAt: 'desc' },
+            take: 5,
+            include: {
+              reviewer: { select: { id: true, name: true, role: true } },
+            },
+          },
+        },
+      }),
+    ]);
+
+    return {
+      items,
+      page,
+      pageSize,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / pageSize)),
+    };
   }
 
   async create(actorId: string, dto: CreateTicketDto) {
@@ -83,7 +179,7 @@ export class TicketsService {
       where: { id: projectId },
       select: { id: true },
     });
-    if (!project) throw new NotFoundException('Proje bulunamadı');
+    if (!project) throw new NotFoundException('Proje bulunamadÄ±');
 
     const assigneeIds = [...new Set(dto.assigneeIds ?? [])];
     await this.ensureActiveMembers(assigneeIds);
@@ -94,6 +190,7 @@ export class TicketsService {
         title: dto.title,
         description: dto.description,
         priority: dto.priority,
+        status: 'IN_PROGRESS',
         assignees:
           assigneeIds.length > 0
             ? {
@@ -127,12 +224,16 @@ export class TicketsService {
         assignees: { select: { memberId: true } },
       },
     });
-    if (!exists) throw new NotFoundException('Görev bulunamadı');
+    if (!exists) throw new NotFoundException('GÃ¶rev bulunamadÄ±');
     const assignedIds = exists.assignees.map((item) => item.memberId);
     if (actor.role !== TeamRole.CAPTAIN && !assignedIds.includes(actor.id)) {
       throw new BadRequestException(
-        'Durumu sadece kaptan veya atanan üye güncelleyebilir',
+        'Durumu sadece kaptan veya atanan Ã¼ye gÃ¼ncelleyebilir',
       );
+    }
+
+    if (actor.role !== TeamRole.CAPTAIN && dto.status !== 'IN_PROGRESS') {
+      throw new BadRequestException('Uye sadece gorevi aktif duruma alabilir');
     }
 
     const ticket = await this.prisma.ticket.update({
@@ -203,7 +304,7 @@ export class TicketsService {
       where: { id },
       select: { id: true },
     });
-    if (!ticket) throw new NotFoundException('Görev bulunamadı');
+    if (!ticket) throw new NotFoundException('GÃ¶rev bulunamadÄ±');
 
     const assigneeIds = [...new Set(dto.assigneeIds ?? [])];
     await this.ensureActiveMembers(assigneeIds);
@@ -232,8 +333,78 @@ export class TicketsService {
       where: { id },
       select: { id: true },
     });
-    if (!ticket) throw new NotFoundException('Görev bulunamadı');
+    if (!ticket) throw new NotFoundException('GÃ¶rev bulunamadÄ±');
     return this.prisma.ticket.delete({ where: { id } });
+  }
+
+  async review(actorId: string, id: string, dto: ReviewTicketDto) {
+    await this.assertCaptain(actorId);
+    const ticket = await this.prisma.ticket.findUnique({
+      where: { id },
+      include: {
+        submissions: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+      },
+    });
+    if (!ticket) throw new NotFoundException('Gorev bulunamadi');
+    if (ticket.submissions.length === 0) {
+      throw new BadRequestException('Onay/ret icin once en az bir teslim olmalidir');
+    }
+
+    if (dto.action === TicketReviewAction.APPROVE) {
+      const updated = await this.prisma.ticket.update({
+        where: { id },
+        data: {
+          status: 'DONE',
+          completedAt: new Date(),
+          reviewNote: null,
+          reviewedAt: new Date(),
+          reviewedById: actorId,
+        },
+      });
+      await this.prisma.ticketReview.create({
+        data: {
+          ticketId: id,
+          reviewerId: actorId,
+          action: PrismaTicketReviewAction.APPROVED,
+        },
+      });
+      await this.queueService.addTicketEvent({
+        ticketId: id,
+        event: 'updated',
+      });
+      return { ok: true, action: dto.action, ticket: updated };
+    }
+
+    const reason = dto.reason?.trim();
+    if (!reason || reason.length < 3) {
+      throw new BadRequestException('Gorev ret icin aciklama zorunludur');
+    }
+    const updated = await this.prisma.ticket.update({
+      where: { id },
+      data: {
+        status: 'IN_PROGRESS',
+        completedAt: null,
+        reviewNote: reason,
+        reviewedAt: new Date(),
+        reviewedById: actorId,
+      },
+    });
+    await this.prisma.ticketReview.create({
+      data: {
+        ticketId: id,
+        reviewerId: actorId,
+        action: PrismaTicketReviewAction.REJECTED,
+        reason,
+      },
+    });
+    await this.queueService.addTicketEvent({
+      ticketId: id,
+      event: 'updated',
+    });
+    return { ok: true, action: dto.action, ticket: updated };
   }
 
   async listSubmissions(actorId: string, ticketId: string) {
@@ -260,7 +431,7 @@ export class TicketsService {
   ) {
     if (!file) throw new BadRequestException('Dosya zorunludur');
     if (!file.buffer || file.buffer.length === 0) {
-      throw new BadRequestException('BoÅŸ dosya kabul edilmez');
+      throw new BadRequestException('BoÃ…Å¸ dosya kabul edilmez');
     }
     const ext = this.extractExtension(file.originalname);
     if (!ext) {
@@ -270,7 +441,7 @@ export class TicketsService {
       throw new BadRequestException('Maksimum dosya boyutu 25 MB olabilir');
     }
     if (!this.matchesFileSignature(file.buffer, ext)) {
-      throw new BadRequestException('Dosya iÃ§eriÄŸi uzantÄ± ile uyuÅŸmuyor');
+      throw new BadRequestException('Dosya iÃƒÂ§eriÃ„Å¸i uzantÃ„Â± ile uyuÃ…Å¸muyor');
     }
     const safeFileName = this.sanitizeFileName(file.originalname, ext);
     const normalizedMimeType = this.normalizeMimeType(ext);
@@ -279,11 +450,11 @@ export class TicketsService {
       where: { id: ticketId },
       select: { id: true },
     });
-    if (!ticket) throw new NotFoundException('Görev bulunamadı');
+    if (!ticket) throw new NotFoundException('GÃ¶rev bulunamadÄ±');
     await this.assertTicketAccess(actorId, ticketId);
 
     if (dto.submittedById !== actorId) {
-      throw new BadRequestException('submittedById alanı giriş yapan kullanıcı ile aynı olmalıdır');
+      throw new BadRequestException('submittedById alanÄ± giriÅŸ yapan kullanÄ±cÄ± ile aynÄ± olmalÄ±dÄ±r');
     }
     await this.ensureActiveMembers([dto.submittedById]);
     const stored = await this.storageService.storeSubmissionFile({
@@ -292,20 +463,37 @@ export class TicketsService {
       mimetype: normalizedMimeType,
     });
 
-    return this.prisma.submission.create({
-      data: {
-        ticketId,
-        submittedById: dto.submittedById,
-        fileName: safeFileName,
-        storageName: stored.storageName,
-        mimeType: normalizedMimeType,
-        size: file.size,
-        note: dto.note,
-      },
-      include: {
-        submittedBy: { select: { id: true, name: true, role: true } },
-      },
+    const [submission] = await this.prisma.$transaction([
+      this.prisma.submission.create({
+        data: {
+          ticketId,
+          submittedById: dto.submittedById,
+          fileName: safeFileName,
+          storageName: stored.storageName,
+          mimeType: normalizedMimeType,
+          size: file.size,
+          note: dto.note,
+        },
+        include: {
+          submittedBy: { select: { id: true, name: true, role: true } },
+        },
+      }),
+      this.prisma.ticket.update({
+        where: { id: ticketId },
+        data: {
+          status: 'IN_REVIEW',
+          completedAt: null,
+          reviewNote: null,
+          reviewedAt: null,
+          reviewedById: null,
+        },
+      }),
+    ]);
+    await this.queueService.addTicketEvent({
+      ticketId,
+      event: 'updated',
     });
+    return submission;
   }
 
   async getSubmissionFile(actorId: string, id: string) {
@@ -319,7 +507,7 @@ export class TicketsService {
         mimeType: true,
       },
     });
-    if (!submission) throw new NotFoundException('Teslim kaydı bulunamadı');
+    if (!submission) throw new NotFoundException('Teslim kaydÄ± bulunamadÄ±');
     await this.assertTicketAccess(actorId, submission.ticketId);
 
     const target = await this.storageService.resolveDownloadTarget(
@@ -387,14 +575,14 @@ export class TicketsService {
       where: { id: { in: unique }, active: true },
     });
     if (count !== unique.length) {
-      throw new BadRequestException('Tüm atananlar aktif takım üyesi olmalıdır');
+      throw new BadRequestException('TÃ¼m atananlar aktif takÄ±m Ã¼yesi olmalÄ±dÄ±r');
     }
   }
 
   private async assertCaptain(actorId: string) {
     const actor = await this.authService.getActorOrThrow(actorId);
     if (actor.role !== TeamRole.CAPTAIN) {
-      throw new BadRequestException('Görevleri sadece kaptan yönetebilir');
+      throw new BadRequestException('GÃ¶revleri sadece kaptan yÃ¶netebilir');
     }
   }
 
@@ -423,7 +611,7 @@ export class TicketsService {
       select: { id: true },
     });
     if (!accessible) {
-      throw new BadRequestException('Bu göreve erişim yetkiniz yok');
+      throw new BadRequestException('Bu gÃ¶reve eriÅŸim yetkiniz yok');
     }
   }
 
@@ -435,7 +623,7 @@ export class TicketsService {
         key: this.systemProjectKey,
         name: this.systemProjectName,
         description:
-          'Takım görevleri ve teslimleri için sistem tarafından yönetilen varsayılan proje',
+          'TakÄ±m gÃ¶revleri ve teslimleri iÃ§in sistem tarafÄ±ndan yÃ¶netilen varsayÄ±lan proje',
         assignments: {
           create: {
             memberId: actorId,
@@ -446,4 +634,5 @@ export class TicketsService {
     });
   }
 }
+
 

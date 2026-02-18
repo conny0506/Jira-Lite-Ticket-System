@@ -4,6 +4,7 @@ import {
   Get,
   HttpException,
   HttpStatus,
+  Patch,
   Post,
   Req,
   Res,
@@ -12,10 +13,13 @@ import {
 import { AuthRateLimitService } from './auth-rate-limit.service';
 import { AuthService } from './auth.service';
 import { CurrentUserId } from './current-user-id.decorator';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import { UpdateSettingsDto } from './dto/update-settings.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -98,7 +102,10 @@ export class AuthController {
   @Post('login')
   async login(@Req() req: any, @Body() dto: LoginDto, @Res({ passthrough: true }) res: any) {
     await this.enforceRateLimit(req, 'login');
-    const result = await this.authService.login(dto.email, dto.password);
+    const result = await this.authService.login(dto.email, dto.password, {
+      ip: this.readClientIp(req),
+      userAgent: req.headers?.['user-agent'] ?? '',
+    });
     res.cookie('jid', result.refreshToken, this.getCookieOptions());
     return {
       accessToken: result.accessToken,
@@ -110,6 +117,11 @@ export class AuthController {
   @Get('me')
   me(@CurrentUserId() userId: string) {
     return this.authService.getActorOrThrow(userId);
+  }
+
+  @Get('profile')
+  profile(@CurrentUserId() userId: string) {
+    return this.authService.getProfile(userId);
   }
 
   @Post('refresh')
@@ -146,6 +158,35 @@ export class AuthController {
   @Post('forgot-password')
   async forgotPassword(@Body() dto: ForgotPasswordDto) {
     return this.authService.forgotPassword(dto.email);
+  }
+
+  @Patch('change-password')
+  async changePassword(
+    @CurrentUserId() actorId: string,
+    @Body() dto: ChangePasswordDto,
+  ) {
+    return this.authService.changePassword(actorId, dto.currentPassword, dto.newPassword);
+  }
+
+  @Patch('profile')
+  async updateProfile(
+    @CurrentUserId() actorId: string,
+    @Body() dto: UpdateProfileDto,
+  ) {
+    return this.authService.updateProfile(actorId, dto.name);
+  }
+
+  @Patch('settings')
+  async updateSettings(
+    @CurrentUserId() actorId: string,
+    @Body() dto: UpdateSettingsDto,
+  ) {
+    return this.authService.updateSettings(actorId, dto);
+  }
+
+  @Get('login-history')
+  async loginHistory(@CurrentUserId() actorId: string) {
+    return this.authService.getLoginHistory(actorId);
   }
 
   @Post('reset-password')

@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { DragEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
@@ -32,6 +32,14 @@ type Submission = {
   submittedBy: Pick<TeamMember, 'id' | 'name' | 'role'>;
 };
 
+type TicketReview = {
+  id: string;
+  action: 'APPROVED' | 'REJECTED';
+  reason?: string | null;
+  createdAt: string;
+  reviewer: Pick<TeamMember, 'id' | 'name' | 'role'>;
+};
+
 type Ticket = {
   id: string;
   projectId: string;
@@ -41,8 +49,12 @@ type Ticket = {
   status: TicketStatus;
   priority: TicketPriority;
   completedAt?: string | null;
+  reviewNote?: string | null;
+  reviewedAt?: string | null;
+  reviewedBy?: Pick<TeamMember, 'id' | 'name' | 'role'> | null;
   assignees: Array<{ member: TeamMember }>;
   submissions: Submission[];
+  reviews: TicketReview[];
 };
 
 type UploadDraft = {
@@ -56,11 +68,47 @@ type AuthBundle = {
   user: TeamMember;
 };
 
-type CaptainTab = 'overview' | 'team' | 'tasks' | 'submissions';
-type MemberTab = 'my_tasks' | 'my_submissions' | 'timeline';
+type CaptainTab = 'overview' | 'team' | 'tasks' | 'submissions' | 'settings';
+type MemberTab = 'my_tasks' | 'my_submissions' | 'timeline' | 'archive' | 'settings';
 type ToastItem = { id: number; type: 'success' | 'error'; message: string };
 type NotificationItem = ToastItem & { createdAt: string };
 type IntroStage = 'none' | 'terminal' | 'quote';
+type ReviewAction = 'APPROVE' | 'REJECT';
+type ArchiveResponse = {
+  items: Ticket[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+};
+
+type UserSettings = {
+  language: 'tr' | 'en';
+  notificationEmailEnabled: boolean;
+  notificationAssignmentEnabled: boolean;
+  notificationReviewEnabled: boolean;
+};
+
+type UserProfile = {
+  id: string;
+  name: string;
+  email: string;
+  role: TeamRole;
+  active: boolean;
+  language: 'tr' | 'en';
+  notificationEmailEnabled: boolean;
+  notificationAssignmentEnabled: boolean;
+  notificationReviewEnabled: boolean;
+  lastLoginAt?: string | null;
+  lastLoginIp?: string | null;
+};
+
+type LoginHistoryItem = {
+  id: string;
+  ip?: string | null;
+  userAgent?: string | null;
+  createdAt: string;
+};
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 const TYPEWRITER_CHARS_PER_SECOND = 120;
@@ -69,33 +117,42 @@ const NETWORK_ERROR_MESSAGE = 'Sunucuya ulasilamadi. Lutfen baglantiyi ve API ad
 const MAX_UPLOAD_SIZE_BYTES = 25 * 1024 * 1024;
 const ALLOWED_UPLOAD_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'ppt', 'pptx']);
 const STATUS_LIST: TicketStatus[] = ['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'DONE'];
+const BOARD_STATUS_LIST = ['IN_PROGRESS'] as const;
+
+const toLocalDateKey = (dateInput: string | Date) => {
+  const date = dateInput instanceof Date ? dateInput : new Date(dateInput);
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
 const STATUS_LABELS: Record<TicketStatus, string> = {
   TODO: 'Beklemede',
   IN_PROGRESS: 'Devam Ediyor',
-  IN_REVIEW: 'İncelemede',
-  DONE: 'Tamamlandı',
+  IN_REVIEW: 'Ä°ncelemede',
+  DONE: 'TamamlandÄ±',
 };
 
 const ROLE_LABELS: Record<TeamRole, string> = {
-  MEMBER: 'Üye',
-  BOARD: 'Yönetim Kurulu',
+  MEMBER: 'Ãœye',
+  BOARD: 'YÃ¶netim Kurulu',
   CAPTAIN: 'Kaptan',
 };
 
 const PRIORITY_LABELS: Record<TicketPriority, string> = {
-  LOW: 'Düşük',
+  LOW: 'DÃ¼ÅŸÃ¼k',
   MEDIUM: 'Orta',
-  HIGH: 'Yüksek',
+  HIGH: 'YÃ¼ksek',
   CRITICAL: 'Kritik',
 };
 
 const SUCCESS_QUOTES = [
-  'Disiplinli ilerleme, günlük motivasyondan daha güçlüdür.',
-  'Küçük ama sürekli adımlar, büyük sonuçlar üretir.',
-  'Mükemmeli bekleme, bugün başla ve geliştir.',
-  'Odaklandığın iş, gelecekteki standardını belirler.',
-  'Başarı tesadüf değil, tekrarlanan doğru davranıştır.',
+  'Disiplinli ilerleme, gÃ¼nlÃ¼k motivasyondan daha gÃ¼Ã§lÃ¼dÃ¼r.',
+  'KÃ¼Ã§Ã¼k ama sÃ¼rekli adÄ±mlar, bÃ¼yÃ¼k sonuÃ§lar Ã¼retir.',
+  'MÃ¼kemmeli bekleme, bugÃ¼n baÅŸla ve geliÅŸtir.',
+  'OdaklandÄ±ÄŸÄ±n iÅŸ, gelecekteki standardÄ±nÄ± belirler.',
+  'BaÅŸarÄ± tesadÃ¼f deÄŸil, tekrarlanan doÄŸru davranÄ±ÅŸtÄ±r.',
 ];
 
 function pickNextQuote(previousQuote: string) {
@@ -172,6 +229,35 @@ export default function HomePage() {
   const [isBulkUpdating, setIsBulkUpdating] = useState(false);
   const [captainMetricsStart, setCaptainMetricsStart] = useState('');
   const [captainMetricsEnd, setCaptainMetricsEnd] = useState('');
+  const [captainMemberFocusId, setCaptainMemberFocusId] = useState<'ALL' | string>('ALL');
+  const [captainArchiveSearch, setCaptainArchiveSearch] = useState('');
+  const [captainArchiveStartDate, setCaptainArchiveStartDate] = useState('');
+  const [captainArchiveEndDate, setCaptainArchiveEndDate] = useState('');
+  const [memberArchiveSearch, setMemberArchiveSearch] = useState('');
+  const [memberArchiveStartDate, setMemberArchiveStartDate] = useState('');
+  const [memberArchiveEndDate, setMemberArchiveEndDate] = useState('');
+  const [reviewReasons, setReviewReasons] = useState<Record<string, string>>({});
+  const [captainArchivePage, setCaptainArchivePage] = useState(1);
+  const [memberArchivePage, setMemberArchivePage] = useState(1);
+  const [captainArchiveData, setCaptainArchiveData] = useState<ArchiveResponse | null>(null);
+  const [memberArchiveData, setMemberArchiveData] = useState<ArchiveResponse | null>(null);
+  const [settingsCurrentPassword, setSettingsCurrentPassword] = useState('');
+  const [settingsNewPassword, setSettingsNewPassword] = useState('');
+  const [settingsConfirmPassword, setSettingsConfirmPassword] = useState('');
+  const [settingsFieldError, setSettingsFieldError] = useState('');
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [profileName, setProfileName] = useState('');
+  const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
+  const [profileFieldError, setProfileFieldError] = useState('');
+  const [settingsData, setSettingsData] = useState<UserSettings>({
+    language: 'tr',
+    notificationEmailEnabled: true,
+    notificationAssignmentEnabled: true,
+    notificationReviewEnabled: true,
+  });
+  const [isUpdatingSettings, setIsUpdatingSettings] = useState(false);
+  const [loginHistory, setLoginHistory] = useState<LoginHistoryItem[]>([]);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [introStage, setIntroStage] = useState<IntroStage>('none');
   const [introQuote, setIntroQuote] = useState(SUCCESS_QUOTES[0]);
   const [introTypedChars, setIntroTypedChars] = useState(0);
@@ -212,27 +298,22 @@ export default function HomePage() {
     visibleTicketIds.length > 0 &&
     visibleTicketIds.every((id) => selectedTicketIds.includes(id));
 
-  const grouped = useMemo(() => {
-    return STATUS_LIST.reduce(
-      (acc, status) => {
-        acc[status] = filteredSelectedProjectTickets.filter((t) => t.status === status);
-        return acc;
-      },
-      {
-        TODO: [] as Ticket[],
-        IN_PROGRESS: [] as Ticket[],
-        IN_REVIEW: [] as Ticket[],
-        DONE: [] as Ticket[],
-      },
-    );
-  }, [filteredSelectedProjectTickets]);
+  const grouped = useMemo(
+    () => ({
+      IN_PROGRESS: filteredSelectedProjectTickets.filter(
+        (t) => t.status === 'IN_PROGRESS' || t.status === 'TODO',
+      ),
+    }),
+    [filteredSelectedProjectTickets],
+  );
 
   const myTickets = useMemo(() => {
     if (!currentUser) return [] as Ticket[];
     return tickets
       .filter((ticket) =>
-      ticket.assignees.some((x) => x.member.id === currentUser.id),
+        ticket.assignees.some((x) => x.member.id === currentUser.id),
       )
+      .filter((ticket) => ticket.status !== 'DONE' && ticket.status !== 'IN_REVIEW')
       .filter((ticket) =>
         ticket.title.toLowerCase().includes(memberTaskSearch.toLowerCase()),
       );
@@ -259,6 +340,21 @@ export default function HomePage() {
           .includes(memberSubmissionSearch.toLowerCase()),
       );
   }, [allSubmissions, currentUser, memberSubmissionSearch]);
+
+  const captainScopedTickets = useMemo(() => {
+    if (captainMemberFocusId === 'ALL') return tickets;
+    return tickets.filter((ticket) =>
+      ticket.assignees.some((x) => x.member.id === captainMemberFocusId),
+    );
+  }, [tickets, captainMemberFocusId]);
+
+  const captainPendingReviewTickets = useMemo(
+    () => captainScopedTickets.filter((ticket) => ticket.status === 'IN_REVIEW'),
+    [captainScopedTickets],
+  );
+
+  const captainArchiveTickets = captainArchiveData?.items ?? [];
+  const myArchiveTickets = memberArchiveData?.items ?? [];
 
   const todayStart = useMemo(() => {
     const d = new Date();
@@ -308,10 +404,10 @@ export default function HomePage() {
       }
     }
     return days.map((day) => {
-      const key = day.toISOString().slice(0, 10);
+      const key = toLocalDateKey(day);
       const doneCount = tickets.filter((t) => {
         if (t.status !== 'DONE' || !t.completedAt) return false;
-        return t.completedAt.slice(0, 10) === key;
+        return toLocalDateKey(t.completedAt) === key;
       }).length;
       return { key, label: day.toLocaleDateString('tr-TR', { weekday: 'short' }), doneCount };
     });
@@ -346,10 +442,10 @@ export default function HomePage() {
       ).length;
 
       return [
-        `Öneri: ${criticalOpen} kritik görev için gün başında kısa plan yap.`,
-        `Öneri: ${unassignedOpen} atanmamış açık görev var, sahiplik belirle.`,
-        `Öneri: İncelemede ${reviewCount} görev var, akşamdan önce netleştir.`,
-        `İvme: Bugün ${doneToday} görev tamamlandı.`,
+        `Ã–neri: ${criticalOpen} kritik gÃ¶rev iÃ§in gÃ¼n baÅŸÄ±nda kÄ±sa plan yap.`,
+        `Ã–neri: ${unassignedOpen} atanmamÄ±ÅŸ aÃ§Ä±k gÃ¶rev var, sahiplik belirle.`,
+        `Ã–neri: Ä°ncelemede ${reviewCount} gÃ¶rev var, akÅŸamdan Ã¶nce netleÅŸtir.`,
+        `Ä°vme: BugÃ¼n ${doneToday} gÃ¶rev tamamlandÄ±.`,
       ];
     }
 
@@ -363,10 +459,10 @@ export default function HomePage() {
     const myTodo = myOpen.filter((x) => x.status === 'TODO').length;
 
     return [
-      `Öneri: Önce ${myCritical} kritik görevi ele al.`,
-      `Öneri: Beklemede ${myTodo} görev var, birini hemen başlat.`,
-      `Öneri: İncelemede ${myReview} görev var, geri bildirimleri kapat.`,
-      `İvme: Bugün ${myTodaySubmissionCount} teslim gönderdin.`,
+      `Ã–neri: Ã–nce ${myCritical} kritik gÃ¶revi ele al.`,
+      `Ã–neri: Beklemede ${myTodo} gÃ¶rev var, birini hemen baÅŸlat.`,
+      `Ã–neri: Ä°ncelemede ${myReview} gÃ¶rev var, geri bildirimleri kapat.`,
+      `Ä°vme: BugÃ¼n ${myTodaySubmissionCount} teslim gÃ¶nderdin.`,
     ];
   }, [currentUser, isCaptain, tickets, todayStart, myTodaySubmissionCount]);
 
@@ -391,9 +487,9 @@ export default function HomePage() {
       const score = clamp(
         82 - openTickets.length * 1.3 - criticalOpen * 3.2 - unassignedOpen * 2.4 - reviewCount * 1.1 + doneToday * 2.5,
       );
-      if (score >= 75) return { score, label: 'Yüksek', tone: 'high' as const };
+      if (score >= 75) return { score, label: 'YÃ¼ksek', tone: 'high' as const };
       if (score >= 50) return { score, label: 'Orta', tone: 'mid' as const };
-      return { score, label: 'Düşük', tone: 'low' as const };
+      return { score, label: 'DÃ¼ÅŸÃ¼k', tone: 'low' as const };
     }
 
     const myOpen = tickets.filter(
@@ -408,9 +504,9 @@ export default function HomePage() {
     const score = clamp(
       84 - myOpen.length * 2.1 - myCritical * 3.8 - myTodo * 1.7 - myReview * 1.2 + myTodaySubmissionCount * 2.2,
     );
-    if (score >= 75) return { score, label: 'Yüksek', tone: 'high' as const };
+    if (score >= 75) return { score, label: 'YÃ¼ksek', tone: 'high' as const };
     if (score >= 50) return { score, label: 'Orta', tone: 'mid' as const };
-    return { score, label: 'Düşük', tone: 'low' as const };
+    return { score, label: 'DÃ¼ÅŸÃ¼k', tone: 'low' as const };
   }, [currentUser, isCaptain, tickets, todayStart, myTodaySubmissionCount]);
 
   const todayText = useMemo(
@@ -583,6 +679,9 @@ export default function HomePage() {
     if (/^\/tickets\/[^/]+\/assignee$/.test(path) && upperMethod === 'PATCH') {
       throw new Error('Atama islemi sadece kaptan icindir.');
     }
+    if (/^\/tickets\/[^/]+\/review$/.test(path) && upperMethod === 'PATCH') {
+      throw new Error('Inceleme islemi sadece kaptan icindir.');
+    }
     if (path === '/tickets/bulk/status' && upperMethod === 'PATCH') {
       throw new Error('Toplu guncelleme sadece kaptan icindir.');
     }
@@ -669,6 +768,31 @@ export default function HomePage() {
     setTickets(ticketData);
   }
 
+  async function loadCaptainArchive() {
+    if (!isCaptain) return;
+    const query = new URLSearchParams();
+    if (captainMemberFocusId !== 'ALL') query.set('memberId', captainMemberFocusId);
+    if (captainArchiveSearch.trim()) query.set('q', captainArchiveSearch.trim());
+    if (captainArchiveStartDate) query.set('from', captainArchiveStartDate);
+    if (captainArchiveEndDate) query.set('to', captainArchiveEndDate);
+    query.set('page', String(captainArchivePage));
+    query.set('pageSize', '20');
+    const data = (await apiFetch(`/tickets/archive?${query.toString()}`)) as ArchiveResponse;
+    setCaptainArchiveData(data);
+  }
+
+  async function loadMemberArchive() {
+    if (!currentUser || isCaptain) return;
+    const query = new URLSearchParams();
+    if (memberArchiveSearch.trim()) query.set('q', memberArchiveSearch.trim());
+    if (memberArchiveStartDate) query.set('from', memberArchiveStartDate);
+    if (memberArchiveEndDate) query.set('to', memberArchiveEndDate);
+    query.set('page', String(memberArchivePage));
+    query.set('pageSize', '20');
+    const data = (await apiFetch(`/tickets/archive?${query.toString()}`)) as ArchiveResponse;
+    setMemberArchiveData(data);
+  }
+
   useEffect(() => {
     const cached = localStorage.getItem('jira_auth');
     const prefs = localStorage.getItem('jira_ui_prefs');
@@ -738,6 +862,61 @@ export default function HomePage() {
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authBundle, refreshingToken]);
+
+  useEffect(() => {
+    setSettingsLoaded(false);
+  }, [authBundle?.user?.id]);
+
+  useEffect(() => {
+    setCaptainArchivePage(1);
+  }, [captainMemberFocusId, captainArchiveSearch, captainArchiveStartDate, captainArchiveEndDate]);
+
+  useEffect(() => {
+    setMemberArchivePage(1);
+  }, [memberArchiveSearch, memberArchiveStartDate, memberArchiveEndDate]);
+
+  useEffect(() => {
+    if (!authBundle || loading) return;
+    if (!isCaptain || captainTab !== 'submissions') return;
+    void loadCaptainArchive().catch((e: Error) => setError(e.message));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    authBundle,
+    loading,
+    isCaptain,
+    captainTab,
+    captainMemberFocusId,
+    captainArchiveSearch,
+    captainArchiveStartDate,
+    captainArchiveEndDate,
+    captainArchivePage,
+  ]);
+
+  useEffect(() => {
+    if (!authBundle || loading) return;
+    if (isCaptain || memberTab !== 'archive') return;
+    void loadMemberArchive().catch((e: Error) => setError(e.message));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    authBundle,
+    loading,
+    isCaptain,
+    memberTab,
+    memberArchiveSearch,
+    memberArchiveStartDate,
+    memberArchiveEndDate,
+    memberArchivePage,
+  ]);
+
+  useEffect(() => {
+    if (!authBundle || loading) return;
+    const open =
+      (isCaptain && captainTab === 'settings') || (!isCaptain && memberTab === 'settings');
+    if (!open) return;
+    if (settingsLoaded) return;
+    void loadSettingsData().catch((e: Error) => setError(e.message));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authBundle, loading, isCaptain, captainTab, memberTab, settingsLoaded]);
 
   useEffect(() => {
     localStorage.setItem(
@@ -814,13 +993,120 @@ export default function HomePage() {
       setIntroQuote((prev) => pickNextQuote(prev));
       setLoginEmail('');
       setLoginPassword('');
-      showToast('success', 'Giriş başarılı');
+      showToast('success', 'GiriÅŸ baÅŸarÄ±lÄ±');
     } catch (e) {
       const message =
         e instanceof TypeError ? NETWORK_ERROR_MESSAGE : (e as Error).message;
       setError(message);
     } finally {
       setIsLoggingIn(false);
+    }
+  }
+
+  async function onChangePassword(e: FormEvent) {
+    e.preventDefault();
+    if (isChangingPassword) return;
+    setSettingsFieldError('');
+    setError('');
+
+    const currentPassword = settingsCurrentPassword;
+    const newPassword = settingsNewPassword;
+    const confirmPassword = settingsConfirmPassword;
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setSettingsFieldError('Tum alanlar zorunludur');
+      return;
+    }
+    if (newPassword.length < 6) {
+      setSettingsFieldError('Yeni sifre en az 6 karakter olmali');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setSettingsFieldError('Yeni sifre ve tekrar alani eslesmiyor');
+      return;
+    }
+    try {
+      setIsChangingPassword(true);
+      await apiFetch('/auth/change-password', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      setSettingsCurrentPassword('');
+      setSettingsNewPassword('');
+      setSettingsConfirmPassword('');
+      showToast('success', 'Sifre guncellendi. Guvenlik icin tekrar giris yapmaniz onerilir.');
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setIsChangingPassword(false);
+    }
+  }
+
+  async function loadSettingsData() {
+    const profile = (await apiFetch('/auth/profile')) as UserProfile;
+    const history = (await apiFetch('/auth/login-history')) as LoginHistoryItem[];
+    setProfileName(profile.name);
+    setSettingsData({
+      language: profile.language,
+      notificationEmailEnabled: profile.notificationEmailEnabled,
+      notificationAssignmentEnabled: profile.notificationAssignmentEnabled,
+      notificationReviewEnabled: profile.notificationReviewEnabled,
+    });
+    setLoginHistory(history);
+    setSettingsLoaded(true);
+  }
+
+  async function onUpdateProfile(e: FormEvent) {
+    e.preventDefault();
+    if (isUpdatingProfile) return;
+    setProfileFieldError('');
+    setError('');
+    const name = profileName.trim();
+    if (name.length < 2) {
+      setProfileFieldError('Ad en az 2 karakter olmali');
+      return;
+    }
+    try {
+      setIsUpdatingProfile(true);
+      const user = (await apiFetch('/auth/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      })) as TeamMember;
+      setAuthBundle((prev) =>
+        prev
+          ? {
+              ...prev,
+              user: { ...prev.user, name: user.name },
+            }
+          : prev,
+      );
+      showToast('success', 'Profil bilgileri guncellendi');
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setIsUpdatingProfile(false);
+    }
+  }
+
+  async function onUpdateSettings(e: FormEvent) {
+    e.preventDefault();
+    if (isUpdatingSettings) return;
+    setError('');
+    try {
+      setIsUpdatingSettings(true);
+      const updated = (await apiFetch('/auth/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settingsData),
+      })) as UserSettings;
+      setSettingsData(updated);
+      showToast('success', 'Ayarlar guncellendi');
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setIsUpdatingSettings(false);
     }
   }
 
@@ -840,10 +1126,14 @@ export default function HomePage() {
     setProjects([]);
     setTickets([]);
     setTeamMembers([]);
+    setCaptainArchiveData(null);
+    setMemberArchiveData(null);
+    setSettingsLoaded(false);
+    setLoginHistory([]);
     setCaptainTab('overview');
     setMemberTab('my_tasks');
     setIntroStage('none');
-    showToast('success', 'Oturum kapatıldı');
+    showToast('success', 'Oturum kapatÄ±ldÄ±');
   }
 
   async function createMember(e: FormEvent) {
@@ -884,7 +1174,7 @@ export default function HomePage() {
       setMemberPassword('');
       setMemberRole('MEMBER');
       await loadAll();
-      showToast('success', 'Üye eklendi');
+      showToast('success', 'Ãœye eklendi');
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -898,7 +1188,7 @@ export default function HomePage() {
     try {
       await apiFetch(`/team-members/${id}`, { method: 'DELETE' });
       await loadAll();
-      showToast('success', 'Üye pasifleştirildi');
+      showToast('success', 'Ãœye pasifleÅŸtirildi');
     } catch (e) {
       setError((e as Error).message);
     }
@@ -932,7 +1222,7 @@ export default function HomePage() {
       setTicketPriority('MEDIUM');
       setTicketAssignees([]);
       await loadAll();
-      showToast('success', 'Görev oluşturuldu');
+      showToast('success', 'GÃ¶rev oluÅŸturuldu');
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -950,7 +1240,7 @@ export default function HomePage() {
         body: JSON.stringify({ assigneeIds }),
       });
       await loadAll();
-      showToast('success', 'Atananlar güncellendi');
+      showToast('success', 'Atananlar gÃ¼ncellendi');
     } catch (e) {
       setError((e as Error).message);
     }
@@ -962,7 +1252,7 @@ export default function HomePage() {
     try {
       await apiFetch(`/tickets/${ticket.id}`, { method: 'DELETE' });
       await loadAll();
-      showToast('success', 'Görev silindi');
+      showToast('success', 'GÃ¶rev silindi');
     } catch (e) {
       setError((e as Error).message);
     }
@@ -1046,9 +1336,43 @@ export default function HomePage() {
         setDropPulseTicketId(ticket.id);
         setTimeout(() => setDropPulseTicketId(null), 420);
       }
-      showToast('success', 'Durum güncellendi');
+      showToast('success', 'Durum gÃ¼ncellendi');
     } catch (e) {
       setTickets(previousTickets);
+      setError((e as Error).message);
+    }
+  }
+
+  function setReviewReason(ticketId: string, reason: string) {
+    setReviewReasons((prev) => ({ ...prev, [ticketId]: reason }));
+  }
+
+  async function reviewTicket(ticket: Ticket, action: ReviewAction) {
+    if (!isCaptain) return;
+    const reason = (reviewReasons[ticket.id] ?? '').trim();
+    if (action === 'REJECT' && reason.length < 3) {
+      setError('Gorev ret icin en az 3 karakter aciklama girin');
+      return;
+    }
+    setError('');
+    try {
+      await apiFetch(`/tickets/${ticket.id}/review`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action,
+          reason: reason || undefined,
+        }),
+      });
+      setReviewReasons((prev) => {
+        if (!prev[ticket.id]) return prev;
+        const next = { ...prev };
+        delete next[ticket.id];
+        return next;
+      });
+      await loadAll();
+      showToast('success', action === 'APPROVE' ? 'Gorev onaylandi ve arsive tasindi' : 'Gorev revizeye gonderildi');
+    } catch (e) {
       setError((e as Error).message);
     }
   }
@@ -1135,7 +1459,7 @@ export default function HomePage() {
       setUpload(ticket.id, { note: '', file: null });
       clearUploadFieldError(ticket.id);
       await loadAll();
-      showToast('success', 'Teslim gönderildi');
+      showToast('success', 'Teslim gÃ¶nderildi');
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -1157,7 +1481,7 @@ export default function HomePage() {
       };
     });
     if (rows.length === 0) {
-      showToast('error', 'Dışa aktarma için teslim kaydı bulunamadı');
+      showToast('error', 'DÄ±ÅŸa aktarma iÃ§in teslim kaydÄ± bulunamadÄ±');
       return;
     }
     const escapeCsv = (value: string) => `"${value.replace(/"/g, '""')}"`;
@@ -1195,7 +1519,7 @@ export default function HomePage() {
     link.click();
     link.remove();
     URL.revokeObjectURL(url);
-    showToast('success', 'CSV dışa aktarma hazırlandı');
+    showToast('success', 'CSV dÄ±ÅŸa aktarma hazÄ±rlandÄ±');
   }
 
   async function downloadSubmission(submission: Submission) {
@@ -1230,10 +1554,10 @@ export default function HomePage() {
     return (
       <main className="app">
         <section className="panel loginPanel">
-          <h1>Ülgen AR-GE Giriş</h1>
-          <p className="muted">Üyeler e-posta ve şifre ile giriş yapar.</p>
+          <h1>Ãœlgen AR-GE GiriÅŸ</h1>
+          <p className="muted">Ãœyeler e-posta ve ÅŸifre ile giriÅŸ yapar.</p>
           <p className="muted">
-            İlk kurulum kaptan: captain@ulgen.local / 1234
+            Ä°lk kurulum kaptan: captain@ulgen.local / 1234
           </p>
           {error && <p className="errorBox">{error}</p>}
           <form onSubmit={onLogin} className="formBlock">
@@ -1283,9 +1607,9 @@ export default function HomePage() {
               transition={{ duration: 0.35, ease: 'easeOut' }}
             >
               <p className="introTag">ULGEN://DAILY-BRIEF</p>
-              <h1>Hoş geldin, {currentUser.name}.</h1>
+              <h1>HoÅŸ geldin, {currentUser.name}.</h1>
               <div className="introScore">
-                <p className="introScoreValue">{`Günlük Odak Puanı: ${introScore.score}/100`}</p>
+                <p className="introScoreValue">{`GÃ¼nlÃ¼k Odak PuanÄ±: ${introScore.score}/100`}</p>
                 <span
                   className={
                     introScore.tone === 'high'
@@ -1325,7 +1649,7 @@ export default function HomePage() {
                   setIntroStage('quote');
                 }}
               >
-                Girişe Devam Et
+                GiriÅŸe Devam Et
               </button>
             </motion.section>
           )}
@@ -1339,7 +1663,7 @@ export default function HomePage() {
               exit={{ opacity: 0 }}
               transition={{ duration: 0.3 }}
             >
-              <p className="quoteMark">“</p>
+              <p className="quoteMark">â€œ</p>
               <AnimatePresence mode="wait">
                 <motion.blockquote
                   key={introQuote}
@@ -1356,7 +1680,7 @@ export default function HomePage() {
                 className="introActionBtn introLightBtn"
                 onClick={() => setIntroStage('none')}
               >
-                Çalışma Alanına Geç
+                Ã‡alÄ±ÅŸma AlanÄ±na GeÃ§
               </button>
             </motion.section>
           )}
@@ -1369,8 +1693,8 @@ export default function HomePage() {
     <main className="app">
       <section className="hero">
         <div>
-          <p className="eyebrow">Ülgen AR-GE Çalışma Alanı</p>
-          <h1>Rol Bazlı Görev Yönetimi</h1>
+          <p className="eyebrow">Ãœlgen AR-GE Ã‡alÄ±ÅŸma AlanÄ±</p>
+          <h1>Rol BazlÄ± GÃ¶rev YÃ¶netimi</h1>
           <p className="muted">
             {currentUser.name} ({ROLE_LABELS[currentUser.role]}) ile aktif oturum.
           </p>
@@ -1381,7 +1705,7 @@ export default function HomePage() {
             <strong>{projects.length}</strong>
           </article>
           <article className="statCard">
-            <span>Görev</span>
+            <span>GÃ¶rev</span>
             <strong>{tickets.length}</strong>
           </article>
           <article className="statCard">
@@ -1422,7 +1746,7 @@ export default function HomePage() {
       {isNotificationOpen && (
         <section className="notificationPanel panel">
           <div className="notifHead">
-            <h3>Bildirim GeÃ§miÅŸi</h3>
+            <h3>Bildirim GeÃƒÂ§miÃ…Å¸i</h3>
             <select
               value={notificationFilter}
               onChange={(e) =>
@@ -1435,7 +1759,7 @@ export default function HomePage() {
             </select>
           </div>
           {filteredNotificationHistory.length === 0 && (
-            <p className="muted">HenÃ¼z bildirim yok.</p>
+            <p className="muted">HenÃƒÂ¼z bildirim yok.</p>
           )}
           <ul className="notificationList">
             {filteredNotificationHistory.map((item) => (
@@ -1456,9 +1780,9 @@ export default function HomePage() {
       <section className="workspace">
         <aside className="sidebar panel">
           <div className="panelHead">
-            <h2>{isCaptain ? 'Kaptan Paneli' : 'Üye Paneli'}</h2>
+            <h2>{isCaptain ? 'Kaptan Paneli' : 'Ãœye Paneli'}</h2>
             <button type="button" onClick={logout}>
-              Çıkış
+              Ã‡Ä±kÄ±ÅŸ
             </button>
           </div>
 
@@ -1466,9 +1790,10 @@ export default function HomePage() {
             <LayoutGroup id="captain-tabs">
               <div className="tabStack">
                 <button type="button" className={captainTab === 'overview' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('overview')}><span>Genel</span>{captainTab === 'overview' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
-                <button type="button" className={captainTab === 'team' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('team')}><span>Takım</span>{captainTab === 'team' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
-                <button type="button" className={captainTab === 'tasks' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('tasks')}><span>Görevler</span>{captainTab === 'tasks' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
-                <button type="button" className={captainTab === 'submissions' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('submissions')}><span>Teslimler</span>{captainTab === 'submissions' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                <button type="button" className={captainTab === 'team' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('team')}><span>TakÄ±m</span>{captainTab === 'team' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                <button type="button" className={captainTab === 'tasks' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('tasks')}><span>GÃ¶revler</span>{captainTab === 'tasks' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                <button type="button" className={captainTab === 'submissions' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('submissions')}><span>Üye Sekmesi</span>{captainTab === 'submissions' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                <button type="button" className={captainTab === 'settings' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('settings')}><span>Ayarlar</span>{captainTab === 'settings' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
               </div>
             </LayoutGroup>
           ) : (
@@ -1476,13 +1801,15 @@ export default function HomePage() {
               <div className="tabStack">
                 <button type="button" className={memberTab === 'my_tasks' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('my_tasks')}><span>Bana Atananlar</span>{memberTab === 'my_tasks' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
                 <button type="button" className={memberTab === 'my_submissions' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('my_submissions')}><span>Teslimlerim</span>{memberTab === 'my_submissions' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
-                <button type="button" className={memberTab === 'timeline' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('timeline')}><span>Akış</span>{memberTab === 'timeline' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                <button type="button" className={memberTab === 'timeline' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('timeline')}><span>AkÄ±ÅŸ</span>{memberTab === 'timeline' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                <button type="button" className={memberTab === 'archive' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('archive')}><span>Arsiv</span>{memberTab === 'archive' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                <button type="button" className={memberTab === 'settings' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('settings')}><span>Ayarlar</span>{memberTab === 'settings' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
               </div>
             </LayoutGroup>
           )}
 
           <p className="muted">
-            Sistem Projesi: {systemProject ? `${systemProject.key} - ${systemProject.name}` : 'Hazırlanıyor'}
+            Sistem Projesi: {systemProject ? `${systemProject.key} - ${systemProject.name}` : 'HazÄ±rlanÄ±yor'}
           </p>
         </aside>
 
@@ -1509,18 +1836,18 @@ export default function HomePage() {
             >
             <div className="cardGrid">
               <article className="infoCard">
-                <h3>Takım Dağılımı</h3>
+                <h3>TakÄ±m DaÄŸÄ±lÄ±mÄ±</h3>
                 <p>
                   Kaptan {teamMembers.filter((x) => x.role === 'CAPTAIN').length} | Kurul{' '}
-                  {teamMembers.filter((x) => x.role === 'BOARD').length} | Üye{' '}
+                  {teamMembers.filter((x) => x.role === 'BOARD').length} | Ãœye{' '}
                   {teamMembers.filter((x) => x.role === 'MEMBER').length}
                 </p>
               </article>
               <article className="infoCard">
-                <h3>Durum Özeti</h3>
+                <h3>Durum Ã–zeti</h3>
                 <p>
                   Beklemede {tickets.filter((x) => x.status === 'TODO').length} | Devam Ediyor{' '}
-                  {tickets.filter((x) => x.status === 'IN_PROGRESS').length} | Tamamlandı{' '}
+                  {tickets.filter((x) => x.status === 'IN_PROGRESS').length} | TamamlandÄ±{' '}
                   {tickets.filter((x) => x.status === 'DONE').length}
                 </p>
               </article>
@@ -1577,7 +1904,7 @@ export default function HomePage() {
             <div className="teamBlock">
               <div className="filterRow">
                 <input
-                  placeholder="Üye ara (ad/e-posta)"
+                  placeholder="Ãœye ara (ad/e-posta)"
                   value={teamSearch}
                   onChange={(e) => setTeamSearch(e.target.value)}
                 />
@@ -1587,10 +1914,10 @@ export default function HomePage() {
                     setTeamRoleFilter(e.target.value as 'ALL' | TeamRole)
                   }
                 >
-                  <option value="ALL">Tüm Roller</option>
+                  <option value="ALL">TÃ¼m Roller</option>
                   <option value="CAPTAIN">Kaptan</option>
                   <option value="BOARD">Kurul</option>
-                  <option value="MEMBER">Üye</option>
+                  <option value="MEMBER">Ãœye</option>
                 </select>
               </div>
               <form onSubmit={createMember} className="formBlock">
@@ -1642,7 +1969,7 @@ export default function HomePage() {
                       <div className="muted">{m.email}</div>
                     </div>
                     <button type="button" onClick={() => deactivateMember(m.id)}>
-                      Pasifleştir
+                      PasifleÅŸtir
                     </button>
                   </li>
                 ))}
@@ -1662,7 +1989,7 @@ export default function HomePage() {
             >
               <div className="filterRow">
                 <input
-                  placeholder="Görev ara"
+                  placeholder="GÃ¶rev ara"
                   value={taskSearch}
                   onChange={(e) => setTaskSearch(e.target.value)}
                 />
@@ -1672,8 +1999,8 @@ export default function HomePage() {
                     setTaskStatusFilter(e.target.value as 'ALL' | TicketStatus)
                   }
                 >
-                  <option value="ALL">Tüm Durumlar</option>
-                  {STATUS_LIST.map((s) => (
+                  <option value="ALL">TÃ¼m Durumlar</option>
+                  {BOARD_STATUS_LIST.map((s) => (
                     <option key={s} value={s}>
                       {STATUS_LABELS[s]}
                     </option>
@@ -1685,7 +2012,7 @@ export default function HomePage() {
                     setTaskPriorityFilter(e.target.value as 'ALL' | TicketPriority)
                   }
                 >
-                  <option value="ALL">Tüm Öncelikler</option>
+                  <option value="ALL">TÃ¼m Ã–ncelikler</option>
                   <option value="LOW">{PRIORITY_LABELS.LOW}</option>
                   <option value="MEDIUM">{PRIORITY_LABELS.MEDIUM}</option>
                   <option value="HIGH">{PRIORITY_LABELS.HIGH}</option>
@@ -1695,7 +2022,7 @@ export default function HomePage() {
                   value={taskAssigneeFilter}
                   onChange={(e) => setTaskAssigneeFilter(e.target.value)}
                 >
-                  <option value="ALL">Tüm Atananlar</option>
+                  <option value="ALL">TÃ¼m Atananlar</option>
                   {teamMembers.map((m) => (
                     <option key={m.id} value={m.id}>
                       {m.name}
@@ -1704,9 +2031,9 @@ export default function HomePage() {
                 </select>
               </div>
               <div className="panelHead">
-                <h2>Görevler</h2>
+                <h2>GÃ¶revler</h2>
                 <button type="button" className={taskLayout === 'board' ? 'tabBtn active' : 'tabBtn'} onClick={() => setTaskLayout(taskLayout === 'board' ? 'list' : 'board')}>
-                  {taskLayout === 'board' ? 'Listeye Geç' : 'Panoya Geç'}
+                  {taskLayout === 'board' ? 'Listeye GeÃ§' : 'Panoya GeÃ§'}
                 </button>
               </div>
               <div className="bulkActionBar">
@@ -1722,7 +2049,7 @@ export default function HomePage() {
                   value={bulkStatus}
                   onChange={(e) => setBulkStatus(e.target.value as TicketStatus)}
                 >
-                  {STATUS_LIST.map((s) => (
+                  {BOARD_STATUS_LIST.map((s) => (
                     <option key={s} value={s}>
                       {STATUS_LABELS[s]}
                     </option>
@@ -1777,7 +2104,7 @@ export default function HomePage() {
 
               {taskLayout === 'board' ? (
                 <div className={isBoardDragging ? 'columns draggingMode' : 'columns'}>
-                  {STATUS_LIST.map((status) => (
+                  {BOARD_STATUS_LIST.map((status) => (
                     <section
                       key={status}
                       className={dragOverStatus === status ? 'column columnDrop' : 'column'}
@@ -1809,9 +2136,9 @@ export default function HomePage() {
                               draggable
                               onDragStart={() => onBoardDragStart(ticket.id)}
                               onDragEnd={onBoardDragEnd}
-                              title="Durum değiştirmek için sürükle"
+                              title="Durum deÄŸiÅŸtirmek iÃ§in sÃ¼rÃ¼kle"
                             >
-                              <span>⋮⋮</span>
+                              <span>â‹®â‹®</span>
                             </button>
                             <label className="selectTicketRow">
                               <input
@@ -1823,27 +2150,10 @@ export default function HomePage() {
                             </label>
                             <strong>{ticket.title}</strong>
                             <p>{ticket.description || '-'}</p>
-                            <div className="ticketMeta">
-                              <span>{PRIORITY_LABELS[ticket.priority]}</span>
-                              <select value={ticket.status} onChange={(e) => moveStatus(ticket, e.target.value as TicketStatus)}>
-                                {STATUS_LIST.map((s) => (
-                                  <option key={s} value={s}>
-                                    {STATUS_LABELS[s]}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                            <div className="quickRow">
-                              <button type="button" onClick={() => moveStatus(ticket, 'IN_PROGRESS')}>
-                                Başla
-                              </button>
-                              <button type="button" onClick={() => moveStatus(ticket, 'IN_REVIEW')}>
-                                İncele
-                              </button>
-                              <button type="button" onClick={() => moveStatus(ticket, 'DONE')}>
-                                Tamamla
-                              </button>
-                            </div>
+                                              <div className="ticketMeta">
+                    <span>{PRIORITY_LABELS[ticket.priority]}</span>
+                    <span>{ticket.status === 'TODO' ? STATUS_LABELS.IN_PROGRESS : STATUS_LABELS[ticket.status]}</span>
+                  </div>
                             <p className="muted">
                               Atananlar: {ticket.assignees.map((x) => x.member.name).join(', ') || 'Yok'}
                             </p>
@@ -1856,7 +2166,7 @@ export default function HomePage() {
                                 ))}
                               </select>
                               <button type="button" onClick={() => deleteTicket(ticket)}>
-                                Görevi Sil
+                                GÃ¶revi Sil
                               </button>
                             </div>
                           </article>
@@ -1870,9 +2180,9 @@ export default function HomePage() {
                   <thead>
                     <tr>
                       <th>Sec</th>
-                      <th>Başlık</th>
+                      <th>BaÅŸlÄ±k</th>
                       <th>Durum</th>
-                      <th>Öncelik</th>
+                      <th>Ã–ncelik</th>
                       <th>Atananlar</th>
                     </tr>
                   </thead>
@@ -1908,82 +2218,127 @@ export default function HomePage() {
               transition={{ duration: 0.22, ease: 'easeOut' }}
             >
               <div className="filterRow">
-                <input
-                  placeholder="Dosya ara"
-                  value={submissionSearch}
-                  onChange={(e) => setSubmissionSearch(e.target.value)}
-                />
                 <select
-                  value={submissionByFilter}
-                  onChange={(e) => setSubmissionByFilter(e.target.value)}
+                  value={captainMemberFocusId}
+                  onChange={(e) => setCaptainMemberFocusId(e.target.value)}
                 >
-                  <option value="ALL">Tüm Üyeler</option>
+                  <option value="ALL">Tum Uyeler</option>
                   {teamMembers.map((m) => (
                     <option key={m.id} value={m.id}>
                       {m.name}
                     </option>
                   ))}
                 </select>
-                <select
-                  value={submissionProjectFilter}
-                  onChange={(e) => setSubmissionProjectFilter(e.target.value)}
-                >
-                  <option value="ALL">Tüm Projeler</option>
-                  {projects.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.key}
-                    </option>
+                <input
+                  placeholder="Arsivde gorev ara"
+                  value={captainArchiveSearch}
+                  onChange={(e) => setCaptainArchiveSearch(e.target.value)}
+                />
+                <input
+                  type="date"
+                  value={captainArchiveStartDate}
+                  onChange={(e) => setCaptainArchiveStartDate(e.target.value)}
+                  aria-label="Arsiv baslangic tarihi"
+                />
+                <input
+                  type="date"
+                  value={captainArchiveEndDate}
+                  onChange={(e) => setCaptainArchiveEndDate(e.target.value)}
+                  aria-label="Arsiv bitis tarihi"
+                />
+              </div>
+
+              <section className="panel" style={{ padding: '12px', marginBottom: '12px' }}>
+                <h3>Inceleme Bekleyen Gorevler</h3>
+                <ul className="submissionRows">
+                  {captainPendingReviewTickets.map((ticket) => {
+                    const latest = ticket.submissions[0];
+                    return (
+                      <li key={ticket.id}>
+                        <div>
+                          <strong>{ticket.title}</strong>
+                          <p>
+                            {ticket.assignees.map((x) => x.member.name).join(', ') || 'Atanan yok'} | Son teslim:{' '}
+                            {latest ? new Date(latest.createdAt).toLocaleString('tr-TR') : 'Yok'}
+                          </p>
+                          {latest && (
+                            <button type="button" onClick={() => downloadSubmission(latest)}>
+                              Son Teslimi Indir
+                            </button>
+                          )}
+                          <input
+                            placeholder="Ret gerekcesi"
+                            value={reviewReasons[ticket.id] ?? ''}
+                            onChange={(e) => setReviewReason(ticket.id, e.target.value)}
+                          />
+                        </div>
+                        <div style={{ display: 'grid', gap: '6px' }}>
+                          <button type="button" onClick={() => reviewTicket(ticket, 'APPROVE')}>
+                            Onay Ver
+                          </button>
+                          <button type="button" onClick={() => reviewTicket(ticket, 'REJECT')}>
+                            Gorev Ret
+                          </button>
+                        </div>
+                      </li>
+                    );
+                  })}
+                  {captainPendingReviewTickets.length === 0 && (
+                    <li>
+                      <p className="muted">Bu filtrede inceleme bekleyen gorev yok.</p>
+                    </li>
+                  )}
+                </ul>
+              </section>
+
+              <section className="panel" style={{ padding: '12px' }}>
+                <h3>Arsiv (Onaylanan Gorevler)</h3>
+                <ul className="submissionRows">
+                  {captainArchiveTickets.map((ticket) => (
+                    <li key={ticket.id}>
+                      <div>
+                        <strong>{ticket.title}</strong>
+                        <p>{ticket.description || '-'}</p>
+                        {ticket.reviewNote && <p>Son revize notu: {ticket.reviewNote}</p>}
+                        <p>
+                          {ticket.assignees.map((x) => x.member.name).join(', ') || 'Atanan yok'} |{' '}
+                          {ticket.completedAt ? new Date(ticket.completedAt).toLocaleString('tr-TR') : '-'}
+                        </p>
+                        {ticket.reviews.length > 0 && (
+                          <p>
+                            Son onay: {ticket.reviews[0].reviewer.name} /{' '}
+                            {new Date(ticket.reviews[0].createdAt).toLocaleString('tr-TR')}
+                          </p>
+                        )}
+                      </div>
+                    </li>
                   ))}
-                </select>
-                <input
-                  type="date"
-                  value={submissionStartDate}
-                  onChange={(e) => setSubmissionStartDate(e.target.value)}
-                  aria-label="Başlangıç tarihi"
-                />
-                <input
-                  type="date"
-                  value={submissionEndDate}
-                  onChange={(e) => setSubmissionEndDate(e.target.value)}
-                  aria-label="Bitis tarihi"
-                />
-                <button type="button" onClick={exportSubmissionsCsv}>
-                  CSV Dışa Aktar
-                </button>
-              </div>
-              <ul className="submissionRows">
-                {filteredSubmissions.map(({ submission, ticket }) => (
-                <li key={submission.id}>
-                  <div>
-                    <strong>{submission.fileName}</strong>
-                    <span className={`fileBadge type-${getFileTypeLabel(submission.fileName).toLowerCase()}`}>
-                      {getFileTypeLabel(submission.fileName)}
-                    </span>
-                    <p>
-                      {(projects.find((p) => p.id === ticket.projectId)?.key ?? 'ULGEN-SYSTEM')} / {ticket.title}
-                    </p>
-                  </div>
-                  <button type="button" onClick={() => downloadSubmission(submission)}>
-                    İndir
+                  {captainArchiveTickets.length === 0 && (
+                    <li>
+                      <p className="muted">Arsivde gorev bulunamadi.</p>
+                    </li>
+                  )}
+                </ul>
+                <div className="quickRow">
+                  <button
+                    type="button"
+                    disabled={(captainArchiveData?.page ?? 1) <= 1}
+                    onClick={() => setCaptainArchivePage((prev) => Math.max(1, prev - 1))}
+                  >
+                    Onceki
                   </button>
-                </li>
-                ))}
-              </ul>
-              <div className="weekChart">
-                <h3>Haftalık Teslim Sayısı</h3>
-                {submissionWeeklyStats.length === 0 && (
-                  <p className="muted">Grafik için teslim verisi yok.</p>
-                )}
-                {submissionWeeklyStats.map((item) => (
-                  <div key={item.week} className="weekRow">
-                    <span>{item.week}</span>
-                    <div className="weekBar">
-                      <i style={{ width: `${Math.max(8, item.count * 20)}px` }} />
-                    </div>
-                    <strong>{item.count}</strong>
-                  </div>
-                ))}
-              </div>
+                  <p className="muted">
+                    Sayfa {captainArchiveData?.page ?? 1} / {captainArchiveData?.totalPages ?? 1}
+                  </p>
+                  <button
+                    type="button"
+                    disabled={(captainArchiveData?.page ?? 1) >= (captainArchiveData?.totalPages ?? 1)}
+                    onClick={() => setCaptainArchivePage((prev) => prev + 1)}
+                  >
+                    Sonraki
+                  </button>
+                </div>
+              </section>
             </motion.div>
           )}
 
@@ -1998,7 +2353,7 @@ export default function HomePage() {
             >
               <div className="filterRow">
                 <input
-                  placeholder="Görev ara"
+                  placeholder="GÃ¶rev ara"
                   value={memberTaskSearch}
                   onChange={(e) => setMemberTaskSearch(e.target.value)}
                 />
@@ -2008,29 +2363,12 @@ export default function HomePage() {
                 <article key={ticket.id} className="ticketCard">
                   <strong>{ticket.title}</strong>
                   <p>{ticket.description || '-'}</p>
-                  <div className="ticketMeta">
+                                    <div className="ticketMeta">
                     <span>{PRIORITY_LABELS[ticket.priority]}</span>
-                    <select value={ticket.status} onChange={(e) => moveStatus(ticket, e.target.value as TicketStatus)}>
-                      {STATUS_LIST.map((s) => (
-                        <option key={s} value={s}>
-                          {STATUS_LABELS[s]}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="quickRow">
-                    <button type="button" onClick={() => moveStatus(ticket, 'IN_PROGRESS')}>
-                      Başla
-                    </button>
-                    <button type="button" onClick={() => moveStatus(ticket, 'IN_REVIEW')}>
-                      İncele
-                    </button>
-                    <button type="button" onClick={() => moveStatus(ticket, 'DONE')}>
-                      Tamamla
-                    </button>
+                    <span>{ticket.status === 'TODO' ? STATUS_LABELS.IN_PROGRESS : STATUS_LABELS[ticket.status]}</span>
                   </div>
                   <div className="submissionBox">
-                    <h4>Teslim Dosyası</h4>
+                    <h4>Teslim DosyasÄ±</h4>
                     <input
                       type="file"
                       accept=".pdf,.doc,.docx,.ppt,.pptx"
@@ -2075,7 +2413,7 @@ export default function HomePage() {
             >
               <div className="filterRow">
                 <input
-                  placeholder="Teslim dosyası ara"
+                  placeholder="Teslim dosyasÄ± ara"
                   value={memberSubmissionSearch}
                   onChange={(e) => setMemberSubmissionSearch(e.target.value)}
                 />
@@ -2091,7 +2429,7 @@ export default function HomePage() {
                     <p>{ticket.title}</p>
                   </div>
                   <button type="button" onClick={() => downloadSubmission(submission)}>
-                    İndir
+                    Ä°ndir
                   </button>
                 </li>
               ))}
@@ -2116,12 +2454,238 @@ export default function HomePage() {
               ))}
             </motion.ul>
           )}
+          {!loading && !isCaptain && memberTab === 'archive' && (
+            <motion.div
+              key="member-archive"
+              className="tabScene"
+              initial={{ opacity: 0, y: 10, scale: 0.99 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.99 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+            >
+              <div className="filterRow">
+                <input
+                  placeholder="Arsiv gorevi ara"
+                  value={memberArchiveSearch}
+                  onChange={(e) => setMemberArchiveSearch(e.target.value)}
+                />
+                <input
+                  type="date"
+                  value={memberArchiveStartDate}
+                  onChange={(e) => setMemberArchiveStartDate(e.target.value)}
+                  aria-label="Arsiv baslangic tarihi"
+                />
+                <input
+                  type="date"
+                  value={memberArchiveEndDate}
+                  onChange={(e) => setMemberArchiveEndDate(e.target.value)}
+                  aria-label="Arsiv bitis tarihi"
+                />
+              </div>
+              <ul className="submissionRows">
+                {myArchiveTickets.map((ticket) => (
+                  <li key={ticket.id}>
+                    <div>
+                      <strong>{ticket.title}</strong>
+                      <p>{ticket.description || '-'}</p>
+                      {ticket.reviewNote && <p>Revize notu: {ticket.reviewNote}</p>}
+                      <p>
+                        {ticket.completedAt
+                          ? new Date(ticket.completedAt).toLocaleString('tr-TR')
+                          : '-'}
+                      </p>
+                      {ticket.reviews.length > 0 && (
+                        <p>
+                          Son karar: {ticket.reviews[0].action} /{' '}
+                          {new Date(ticket.reviews[0].createdAt).toLocaleString('tr-TR')}
+                        </p>
+                      )}
+                    </div>
+                  </li>
+                ))}
+                {myArchiveTickets.length === 0 && (
+                  <li>
+                    <p className="muted">Arsivde gorev bulunamadi.</p>
+                  </li>
+                )}
+              </ul>
+              <div className="quickRow">
+                <button
+                  type="button"
+                  disabled={(memberArchiveData?.page ?? 1) <= 1}
+                  onClick={() => setMemberArchivePage((prev) => Math.max(1, prev - 1))}
+                >
+                  Onceki
+                </button>
+                <p className="muted">
+                  Sayfa {memberArchiveData?.page ?? 1} / {memberArchiveData?.totalPages ?? 1}
+                </p>
+                <button
+                  type="button"
+                  disabled={(memberArchiveData?.page ?? 1) >= (memberArchiveData?.totalPages ?? 1)}
+                  onClick={() => setMemberArchivePage((prev) => prev + 1)}
+                >
+                  Sonraki
+                </button>
+              </div>
+            </motion.div>
+          )}
+          {!loading && ((isCaptain && captainTab === 'settings') || (!isCaptain && memberTab === 'settings')) && (
+            <motion.div
+              key="settings-tab"
+              className="tabScene"
+              initial={{ opacity: 0, y: 10, scale: 0.99 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.99 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+            >
+              <section className="panel" style={{ padding: '12px' }}>
+                <h3>Ayarlar</h3>
+                <p className="muted">Profil bilgileri, bildirim tercihleri, dil ve sifre islemleri.</p>
+                <form onSubmit={onUpdateProfile} className="formBlock" style={{ marginBottom: '12px' }}>
+                  <h4>Profil Bilgileri</h4>
+                  <input
+                    placeholder="Ad Soyad"
+                    value={profileName}
+                    onChange={(e) => {
+                      setProfileName(e.target.value);
+                      setProfileFieldError('');
+                    }}
+                    required
+                  />
+                  <input value={currentUser.email} disabled />
+                  <input value={ROLE_LABELS[currentUser.role]} disabled />
+                  {profileFieldError && <p className="fieldError">{profileFieldError}</p>}
+                  <button type="submit" disabled={isUpdatingProfile}>
+                    {isUpdatingProfile ? 'Kaydediliyor...' : 'Profili Kaydet'}
+                  </button>
+                </form>
+
+                <form onSubmit={onUpdateSettings} className="formBlock" style={{ marginBottom: '12px' }}>
+                  <h4>Bildirimler ve Dil</h4>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={settingsData.notificationEmailEnabled}
+                      onChange={(e) =>
+                        setSettingsData((prev) => ({
+                          ...prev,
+                          notificationEmailEnabled: e.target.checked,
+                        }))
+                      }
+                    />
+                    E-posta bildirimleri acik
+                  </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={settingsData.notificationAssignmentEnabled}
+                      onChange={(e) =>
+                        setSettingsData((prev) => ({
+                          ...prev,
+                          notificationAssignmentEnabled: e.target.checked,
+                        }))
+                      }
+                    />
+                    Gorev atama bildirimi acik
+                  </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={settingsData.notificationReviewEnabled}
+                      onChange={(e) =>
+                        setSettingsData((prev) => ({
+                          ...prev,
+                          notificationReviewEnabled: e.target.checked,
+                        }))
+                      }
+                    />
+                    Inceleme/ret bildirimi acik
+                  </label>
+                  <select
+                    value={settingsData.language}
+                    onChange={(e) =>
+                      setSettingsData((prev) => ({
+                        ...prev,
+                        language: e.target.value as 'tr' | 'en',
+                      }))
+                    }
+                  >
+                    <option value="tr">Turkce</option>
+                    <option value="en">English</option>
+                  </select>
+                  <button type="submit" disabled={isUpdatingSettings}>
+                    {isUpdatingSettings ? 'Kaydediliyor...' : 'Ayarları Kaydet'}
+                  </button>
+                </form>
+
+                <form onSubmit={onChangePassword} className="formBlock">
+                  <h4>Sifre Degistir</h4>
+                  <input
+                    type="password"
+                    placeholder="Mevcut sifre"
+                    value={settingsCurrentPassword}
+                    onChange={(e) => {
+                      setSettingsCurrentPassword(e.target.value);
+                      setSettingsFieldError('');
+                    }}
+                    required
+                  />
+                  <input
+                    type="password"
+                    placeholder="Yeni sifre"
+                    value={settingsNewPassword}
+                    onChange={(e) => {
+                      setSettingsNewPassword(e.target.value);
+                      setSettingsFieldError('');
+                    }}
+                    required
+                  />
+                  <input
+                    type="password"
+                    placeholder="Yeni sifre (tekrar)"
+                    value={settingsConfirmPassword}
+                    onChange={(e) => {
+                      setSettingsConfirmPassword(e.target.value);
+                      setSettingsFieldError('');
+                    }}
+                    required
+                  />
+                  {settingsFieldError && <p className="fieldError">{settingsFieldError}</p>}
+                  <button type="submit" disabled={isChangingPassword}>
+                    {isChangingPassword ? 'Guncelleniyor...' : 'Sifreyi Degistir'}
+                  </button>
+                </form>
+
+                <div className="formBlock" style={{ marginTop: '12px' }}>
+                  <h4>Son Giris Gecmisi</h4>
+                  <ul className="submissionRows">
+                    {loginHistory.map((entry) => (
+                      <li key={entry.id}>
+                        <div>
+                          <strong>{new Date(entry.createdAt).toLocaleString('tr-TR')}</strong>
+                          <p>IP: {entry.ip || '-'}</p>
+                          <p>{entry.userAgent || '-'}</p>
+                        </div>
+                      </li>
+                    ))}
+                    {loginHistory.length === 0 && (
+                      <li>
+                        <p className="muted">Giris gecmisi kaydi bulunamadi.</p>
+                      </li>
+                    )}
+                  </ul>
+                </div>
+              </section>
+            </motion.div>
+          )}
           </AnimatePresence>
         </section>
       </section>
     </main>
   );
 }
+
 
 
 

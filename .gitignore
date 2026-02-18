@@ -9,3 +9,5 @@ coverage/
 .env.*.local
 gerekli_bilgiler.txt
 gerekli_bilgiler.local.txt
+smtp_kontrol.local.txt
+render_env_kontrol.local.txt

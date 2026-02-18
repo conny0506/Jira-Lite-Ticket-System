@@ -1,4 +1,5 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
+import * as argon2 from 'argon2';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { signAccessToken } from './token.util';
@@ -11,8 +12,28 @@ export class AuthService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  hashPassword(password: string) {
+  async hashPassword(password: string) {
+    return argon2.hash(password, {
+      type: argon2.argon2id,
+      memoryCost: 19_456,
+      timeCost: 2,
+      parallelism: 1,
+    });
+  }
+
+  private hashPasswordLegacy(password: string) {
     return createHash('sha256').update(password).digest('hex');
+  }
+
+  private isArgon2Hash(hash: string) {
+    return hash.startsWith('$argon2');
+  }
+
+  private async verifyPassword(storedHash: string, password: string) {
+    if (this.isArgon2Hash(storedHash)) {
+      return argon2.verify(storedHash, password);
+    }
+    return storedHash === this.hashPasswordLegacy(password);
   }
 
   hashToken(token: string) {
@@ -37,11 +58,18 @@ export class AuthService {
     });
 
     if (!member || !member.active) {
-      throw new UnauthorizedException('Geçersiz giriş bilgileri');
+      throw new UnauthorizedException('Gecersiz giris bilgileri');
     }
 
-    if (member.passwordHash !== this.hashPassword(password)) {
-      throw new UnauthorizedException('Geçersiz giriş bilgileri');
+    const isValidPassword = await this.verifyPassword(member.passwordHash, password);
+    if (!isValidPassword) {
+      throw new UnauthorizedException('Gecersiz giris bilgileri');
+    }
+    if (!this.isArgon2Hash(member.passwordHash)) {
+      await this.prisma.teamMember.update({
+        where: { id: member.id },
+        data: { passwordHash: await this.hashPassword(password) },
+      });
     }
 
     const refreshToken = this.generateRefreshToken();
@@ -58,9 +86,7 @@ export class AuthService {
         expiresAt: new Date(Date.now() + this.refreshTtlDays * 24 * 60 * 60 * 1000),
       },
     });
-    const accessTokenExpiresAt = new Date(
-      Date.now() + this.accessTtlSeconds * 1000,
-    );
+    const accessTokenExpiresAt = new Date(Date.now() + this.accessTtlSeconds * 1000);
 
     return {
       accessToken: signAccessToken(
@@ -95,7 +121,7 @@ export class AuthService {
       session.expiresAt.getTime() < Date.now() ||
       !session.member.active
     ) {
-      throw new UnauthorizedException('Geçersiz yenileme anahtarı');
+      throw new UnauthorizedException('Gecersiz yenileme anahtari');
     }
 
     const nextRefresh = this.generateRefreshToken();
@@ -107,9 +133,7 @@ export class AuthService {
       },
     });
 
-    const accessTokenExpiresAt = new Date(
-      Date.now() + this.accessTtlSeconds * 1000,
-    );
+    const accessTokenExpiresAt = new Date(Date.now() + this.accessTtlSeconds * 1000);
     return {
       accessToken: signAccessToken(
         { sub: session.member.id, role: session.member.role },
@@ -143,7 +167,7 @@ export class AuthService {
     });
 
     if (!member || !member.active) {
-      throw new UnauthorizedException('Aktif kullanıcı bulunamadı');
+      throw new UnauthorizedException('Aktif kullanici bulunamadi');
     }
     return member;
   }

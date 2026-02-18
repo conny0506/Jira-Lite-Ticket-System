@@ -37,11 +37,12 @@ export class TeamMembersService {
   async create(actorId: string, dto: CreateTeamMemberDto) {
     await this.assertCaptain(actorId);
     await this.validateRoleCapacity(dto.role ?? TeamRole.MEMBER);
+    const passwordHash = await this.authService.hashPassword(dto.password);
     return this.prisma.teamMember.create({
       data: {
         name: dto.name.trim(),
         email: dto.email.toLowerCase().trim(),
-        passwordHash: this.authService.hashPassword(dto.password),
+        passwordHash,
         role: dto.role ?? TeamRole.MEMBER,
       },
       select: {
@@ -67,6 +68,9 @@ export class TeamMembersService {
     if (shouldCountForRole) {
       await this.validateRoleCapacity(nextRole, id);
     }
+    const passwordHash = dto.password
+      ? await this.authService.hashPassword(dto.password)
+      : undefined;
 
     return this.prisma.teamMember.update({
       where: { id },
@@ -75,9 +79,7 @@ export class TeamMembersService {
         email: dto.email?.toLowerCase().trim(),
         role: dto.role,
         active: dto.active,
-        passwordHash: dto.password
-          ? this.authService.hashPassword(dto.password)
-          : undefined,
+        passwordHash,
       },
       select: {
         id: true,

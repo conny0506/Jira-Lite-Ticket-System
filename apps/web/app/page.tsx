@@ -66,8 +66,23 @@ type AuthBundle = {
   user: TeamMember;
 };
 
-type CaptainTab = 'overview' | 'team' | 'tasks' | 'submissions';
-type MemberTab = 'my_tasks' | 'my_submissions' | 'timeline';
+type MeetingInfo = {
+  id: string;
+  scheduledAt: string;
+  meetingUrl: string;
+  note?: string | null;
+  reminderSentAt?: string | null;
+  createdBy: Pick<TeamMember, 'id' | 'name' | 'email'>;
+};
+
+type CaptainTab =
+  | 'home'
+  | 'meeting'
+  | 'overview'
+  | 'team'
+  | 'tasks'
+  | 'submissions';
+type MemberTab = 'home' | 'my_tasks' | 'my_submissions' | 'timeline';
 type ToastItem = { id: number; type: 'success' | 'error'; message: string };
 type NotificationItem = ToastItem & { createdAt: string };
 type IntroStage = 'none' | 'terminal' | 'quote';
@@ -179,6 +194,14 @@ function pickNextQuote(previousQuote: string) {
   return next;
 }
 
+function toDatetimeLocalValue(iso: string) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  const tzOffsetMinutes = date.getTimezoneOffset();
+  const local = new Date(date.getTime() - tzOffsetMinutes * 60 * 1000);
+  return local.toISOString().slice(0, 16);
+}
+
 export default function HomePage() {
   const [authBundle, setAuthBundle] = useState<AuthBundle | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -218,8 +241,14 @@ export default function HomePage() {
   const [captainFileDrafts, setCaptainFileDrafts] =
     useState<Record<string, CaptainFileDraft>>({});
   const [refreshingToken, setRefreshingToken] = useState(false);
-  const [captainTab, setCaptainTab] = useState<CaptainTab>('overview');
-  const [memberTab, setMemberTab] = useState<MemberTab>('my_tasks');
+  const [captainTab, setCaptainTab] = useState<CaptainTab>('home');
+  const [memberTab, setMemberTab] = useState<MemberTab>('home');
+  const [meeting, setMeeting] = useState<MeetingInfo | null>(null);
+  const [meetingScheduledAt, setMeetingScheduledAt] = useState('');
+  const [meetingUrl, setMeetingUrl] = useState('');
+  const [meetingNote, setMeetingNote] = useState('');
+  const [meetingFieldError, setMeetingFieldError] = useState('');
+  const [isSavingMeeting, setIsSavingMeeting] = useState(false);
   const [taskLayout, setTaskLayout] = useState<'board' | 'list'>('board');
   const [teamSearch, setTeamSearch] = useState('');
   const [teamRoleFilter, setTeamRoleFilter] = useState<'ALL' | TeamRole>('ALL');
@@ -392,6 +421,12 @@ export default function HomePage() {
     [tickets],
   );
   const summaryTaskCount = isCaptain ? captainOpenTaskCount : myActiveTaskCount;
+  const meetingDateLabel = useMemo(() => {
+    if (!meeting) return '-';
+    const date = new Date(meeting.scheduledAt);
+    if (Number.isNaN(date.getTime())) return '-';
+    return date.toLocaleString('tr-TR');
+  }, [meeting]);
 
   const captainTrendLast7 = useMemo(() => {
     const start = captainMetricsStart ? new Date(`${captainMetricsStart}T00:00:00`) : null;
@@ -745,6 +780,9 @@ export default function HomePage() {
     if (path.startsWith('/projects') && upperMethod !== 'GET') {
       throw new Error('Proje yonetimi sadece kaptan icindir.');
     }
+    if (path.startsWith('/meetings') && upperMethod !== 'GET') {
+      throw new Error('Toplanti ayarlari sadece kaptan icindir.');
+    }
   }
 
   async function refreshAuthToken() {
@@ -812,14 +850,20 @@ export default function HomePage() {
 
   async function loadAll() {
     if (!currentUser) return;
-    const [projectData, memberData, ticketData] = await Promise.all([
+    const [projectData, memberData, ticketData, meetingData] = await Promise.all([
       apiFetch('/projects'),
       apiFetch('/team-members'),
       apiFetch('/tickets'),
+      apiFetch('/meetings/current'),
     ]);
     setProjects(projectData);
     setTeamMembers(memberData);
     setTickets(ticketData);
+    const nextMeeting = (meetingData as { meeting?: MeetingInfo | null }).meeting ?? null;
+    setMeeting(nextMeeting);
+    setMeetingScheduledAt(nextMeeting ? toDatetimeLocalValue(nextMeeting.scheduledAt) : '');
+    setMeetingUrl(nextMeeting?.meetingUrl ?? '');
+    setMeetingNote(nextMeeting?.note ?? '');
   }
 
   useEffect(() => {
@@ -863,14 +907,17 @@ export default function HomePage() {
   useEffect(() => {
     if (!currentUser) return;
     if (currentUser.role === 'CAPTAIN') {
-      setMemberTab('my_tasks');
+      setMemberTab('home');
       setTeamRoleFilter('ALL');
+      setCaptainTab('home');
       return;
     }
     if (currentUser.role === 'BOARD') {
-      setMemberTab('my_tasks');
+      setMemberTab('home');
     }
-    setCaptainTab('overview');
+    if (currentUser.role === 'MEMBER') {
+      setMemberTab('home');
+    }
   }, [currentUser]);
 
   useEffect(() => {
@@ -1061,8 +1108,8 @@ export default function HomePage() {
     setProjects([]);
     setTickets([]);
     setTeamMembers([]);
-    setCaptainTab('overview');
-    setMemberTab('my_tasks');
+    setCaptainTab('home');
+    setMemberTab('home');
     setIntroStage('none');
     showToast('success', 'Oturum kapatıldı');
   }
@@ -1102,6 +1149,47 @@ export default function HomePage() {
       setBugReportError(message);
     } finally {
       setIsBugReportSending(false);
+    }
+  }
+
+  async function saveMeetingPlan(e: FormEvent) {
+    e.preventDefault();
+    setMeetingFieldError('');
+    const scheduled = new Date(meetingScheduledAt);
+    if (Number.isNaN(scheduled.getTime())) {
+      setMeetingFieldError('Toplanti tarihi ve saati zorunludur.');
+      return;
+    }
+    if (scheduled.getTime() <= Date.now() + 15 * 60 * 1000) {
+      setMeetingFieldError('Toplanti en az 15 dakika sonrasina planlanmalidir.');
+      return;
+    }
+    const trimmedUrl = meetingUrl.trim();
+    if (!/^https?:\/\//i.test(trimmedUrl)) {
+      setMeetingFieldError('Toplanti linki http:// veya https:// ile baslamalidir.');
+      return;
+    }
+
+    setIsSavingMeeting(true);
+    try {
+      const result = (await apiFetch('/meetings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scheduledAt: scheduled.toISOString(),
+          meetingUrl: trimmedUrl,
+          note: meetingNote.trim() || undefined,
+        }),
+      })) as { meeting: MeetingInfo };
+      setMeeting(result.meeting);
+      setMeetingScheduledAt(toDatetimeLocalValue(result.meeting.scheduledAt));
+      setMeetingUrl(result.meeting.meetingUrl);
+      setMeetingNote(result.meeting.note ?? '');
+      showToast('success', 'Toplanti planlandi.');
+    } catch (error) {
+      setMeetingFieldError(error instanceof Error ? error.message : 'Toplanti planlanamadi.');
+    } finally {
+      setIsSavingMeeting(false);
     }
   }
 
@@ -1869,17 +1957,29 @@ export default function HomePage() {
           </div>
 
           {isCaptain ? (
-            <LayoutGroup id="captain-tabs">
+                        <LayoutGroup id="captain-tabs">
               <div className="tabStack">
+                <button type="button" className={captainTab === 'home' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('home')}><span>Anasayfa</span>{captainTab === 'home' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                <button type="button" className={captainTab === 'meeting' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('meeting')}><span>Toplanti Ayarlar</span>{captainTab === 'meeting' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
                 <button type="button" className={captainTab === 'overview' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('overview')}><span>Genel</span>{captainTab === 'overview' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
-                <button type="button" className={captainTab === 'team' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('team')}><span>Takım</span>{captainTab === 'team' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
-                <button type="button" className={captainTab === 'tasks' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('tasks')}><span>Görevler</span>{captainTab === 'tasks' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                <button type="button" className={captainTab === 'team' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('team')}><span>Takim</span>{captainTab === 'team' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                <button type="button" className={captainTab === 'tasks' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('tasks')}><span>Gorevler</span>{captainTab === 'tasks' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
                 <button type="button" className={captainTab === 'submissions' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('submissions')}><span>Kisi Sayfalari</span>{captainTab === 'submissions' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
               </div>
             </LayoutGroup>
           ) : (
-            <LayoutGroup id="member-tabs">
+                        <LayoutGroup id="member-tabs">
               <div className="tabStack">
+                <button
+                  type="button"
+                  className={memberTab === 'home' ? 'tabBtn active' : 'tabBtn'}
+                  onClick={() => setMemberTab('home')}
+                >
+                  <span>Anasayfa</span>
+                  {memberTab === 'home' && (
+                    <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />
+                  )}
+                </button>
                 <button
                   type="button"
                   className={`tabBtn ${memberTab === 'my_tasks' ? 'active' : ''} ${
@@ -1895,12 +1995,8 @@ export default function HomePage() {
                     <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />
                   )}
                 </button>
-                {!isBoard && (
-                  <button type="button" className={memberTab === 'my_submissions' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('my_submissions')}><span>Teslimlerim</span>{memberTab === 'my_submissions' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
-                )}
-                {!isBoard && (
-                  <button type="button" className={memberTab === 'timeline' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('timeline')}><span>Akış</span>{memberTab === 'timeline' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
-                )}
+                <button type="button" className={memberTab === 'my_submissions' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('my_submissions')}><span>Teslimlerim</span>{memberTab === 'my_submissions' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                <button type="button" className={memberTab === 'timeline' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('timeline')}><span>Akis</span>{memberTab === 'timeline' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
               </div>
             </LayoutGroup>
           )}
@@ -1922,6 +2018,92 @@ export default function HomePage() {
             </div>
           )}
           <AnimatePresence mode="wait" initial={false}>
+          {!loading && isCaptain && captainTab === 'home' && (
+            <motion.div
+              key="captain-home"
+              className="tabScene"
+              initial={{ opacity: 0, y: 10, scale: 0.99 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.99 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+            >
+              <div className="cardGrid">
+                <article className="infoCard">
+                  <h3>Anasayfa</h3>
+                  <p>{meeting ? 'Planli toplanti var.' : 'Planli toplanti yok.'}</p>
+                  <p className="muted">
+                    {meeting
+                      ? `Tarih: ${meetingDateLabel}`
+                      : 'Toplanti ayarlari sekmesinden planlama yapabilirsiniz.'}
+                  </p>
+                </article>
+                <article className="infoCard">
+                  <h3>Toplanti Linki</h3>
+                  {meeting ? (
+                    <a href={meeting.meetingUrl} target="_blank" rel="noreferrer">
+                      {meeting.meetingUrl}
+                    </a>
+                  ) : (
+                    <p className="muted">Henuz link eklenmedi.</p>
+                  )}
+                </article>
+              </div>
+              {meeting?.note && (
+                <article className="infoCard">
+                  <h3>Toplanti Notu</h3>
+                  <p>{meeting.note}</p>
+                </article>
+              )}
+            </motion.div>
+          )}
+          {!loading && isCaptain && captainTab === 'meeting' && (
+            <motion.div
+              key="captain-meeting"
+              className="tabScene"
+              initial={{ opacity: 0, y: 10, scale: 0.99 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.99 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+            >
+              <form className="formBlock" onSubmit={saveMeetingPlan}>
+                <h3>Toplanti Planla</h3>
+                <input
+                  type="datetime-local"
+                  value={meetingScheduledAt}
+                  onChange={(e) => {
+                    setMeetingScheduledAt(e.target.value);
+                    setMeetingFieldError('');
+                  }}
+                  required
+                />
+                <input
+                  placeholder="Toplanti linki (https://...)"
+                  value={meetingUrl}
+                  onChange={(e) => {
+                    setMeetingUrl(e.target.value);
+                    setMeetingFieldError('');
+                  }}
+                  required
+                />
+                <textarea
+                  placeholder="Toplanti notu (istege bagli)"
+                  value={meetingNote}
+                  onChange={(e) => {
+                    setMeetingNote(e.target.value);
+                    setMeetingFieldError('');
+                  }}
+                />
+                {meetingFieldError && <p className="fieldError">{meetingFieldError}</p>}
+                <button type="submit" disabled={isSavingMeeting}>
+                  {isSavingMeeting ? 'Kaydediliyor...' : 'Toplantiyi Planla'}
+                </button>
+              </form>
+              <p className="muted">
+                Toplanti saatine 15 dakika kala aktif tum kullanicilara e-posta hatirlatmasi
+                gonderilir.
+              </p>
+            </motion.div>
+          )}
           {!loading && isCaptain && captainTab === 'overview' && (
             <motion.div
               key="captain-overview"
@@ -2452,6 +2634,44 @@ export default function HomePage() {
               )}
             </motion.div>
           )}
+          {!loading && !isCaptain && memberTab === 'home' && (
+            <motion.div
+              key="member-home"
+              className="tabScene"
+              initial={{ opacity: 0, y: 10, scale: 0.99 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.99 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+            >
+              <div className="cardGrid">
+                <article className="infoCard">
+                  <h3>Anasayfa</h3>
+                  <p>{meeting ? 'Planli toplanti var.' : 'Planli toplanti yok.'}</p>
+                  <p className="muted">
+                    {meeting
+                      ? `Tarih: ${meetingDateLabel}`
+                      : 'Yeni bir toplanti planlanmadiginda bu alan bos kalir.'}
+                  </p>
+                </article>
+                <article className="infoCard">
+                  <h3>Toplanti Linki</h3>
+                  {meeting ? (
+                    <a href={meeting.meetingUrl} target="_blank" rel="noreferrer">
+                      {meeting.meetingUrl}
+                    </a>
+                  ) : (
+                    <p className="muted">Toplanti linki bekleniyor.</p>
+                  )}
+                </article>
+              </div>
+              {meeting?.note && (
+                <article className="infoCard">
+                  <h3>Toplanti Notu</h3>
+                  <p>{meeting.note}</p>
+                </article>
+              )}
+            </motion.div>
+          )}
           {!loading && !isCaptain && memberTab === 'my_tasks' && (
             <motion.div
               key="member-tasks"
@@ -2545,7 +2765,7 @@ export default function HomePage() {
               </div>
             </motion.div>
           )}
-{!loading && !isCaptain && !isBoard && memberTab === 'my_submissions' && (
+{!loading && !isCaptain && memberTab === 'my_submissions' && (
             <motion.div
               key="member-submissions"
               className="tabScene"
@@ -2580,7 +2800,7 @@ export default function HomePage() {
             </motion.div>
           )}
 
-          {!loading && !isCaptain && !isBoard && memberTab === 'timeline' && (
+          {!loading && !isCaptain && memberTab === 'timeline' && (
             <motion.ul
               key="member-timeline"
               className="timeline tabScene"
@@ -2654,6 +2874,7 @@ export default function HomePage() {
     </main>
   );
 }
+
 
 
 

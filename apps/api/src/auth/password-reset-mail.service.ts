@@ -74,6 +74,42 @@ export class PasswordResetMailService {
     };
   }
 
+  private buildMeetingReminderContent(params: {
+    name: string;
+    meetingUrl: string;
+    scheduledAt: Date;
+    note?: string;
+  }): EmailContent {
+    const meetingTime = params.scheduledAt.toLocaleString('tr-TR', {
+      timeZone: 'Europe/Istanbul',
+    });
+    const noteLine = params.note?.trim() ? `Not: ${params.note.trim()}` : '';
+    return {
+      subject: 'Toplanti hatirlatmasi (15 dakika kaldi)',
+      text: [
+        `Merhaba ${params.name},`,
+        '',
+        'Toplantiya 15 dakika kaldi.',
+        `Tarih / Saat: ${meetingTime}`,
+        `Toplanti Linki: ${params.meetingUrl}`,
+        noteLine,
+      ]
+        .filter(Boolean)
+        .join('\n'),
+      html: `
+        <p>Merhaba ${this.escapeHtml(params.name)},</p>
+        <p><strong>Toplantiya 15 dakika kaldi.</strong></p>
+        <p><strong>Tarih / Saat:</strong> ${this.escapeHtml(meetingTime)}</p>
+        <p><strong>Toplanti Linki:</strong> <a href="${params.meetingUrl}">${params.meetingUrl}</a></p>
+        ${
+          noteLine
+            ? `<p><strong>Not:</strong> ${this.escapeHtml(params.note!.trim())}</p>`
+            : ''
+        }
+      `,
+    };
+  }
+
   private createTransport() {
     const host = process.env.SMTP_HOST?.trim();
     const port = Number(process.env.SMTP_PORT ?? 587);
@@ -124,6 +160,17 @@ export class PasswordResetMailService {
       dueAt: params.dueAt,
     });
 
+    await this.sendEmail({ to: params.to, content });
+  }
+
+  async sendMeetingReminderEmail(params: {
+    to: string;
+    name: string;
+    meetingUrl: string;
+    scheduledAt: Date;
+    note?: string;
+  }) {
+    const content = this.buildMeetingReminderContent(params);
     await this.sendEmail({ to: params.to, content });
   }
 

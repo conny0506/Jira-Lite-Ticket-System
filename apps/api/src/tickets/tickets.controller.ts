@@ -57,8 +57,22 @@ export class TicketsController {
   }
 
   @Post()
-  create(@CurrentUserId() actorId: string, @Body() dto: CreateTicketDto) {
-    return this.ticketsService.create(actorId, dto);
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: 25 * 1024 * 1024 },
+    }),
+  )
+  create(
+    @CurrentUserId() actorId: string,
+    @Body() dto: CreateTicketDto,
+    @UploadedFile() file?: {
+      buffer: Buffer;
+      originalname: string;
+      mimetype: string;
+      size: number;
+    },
+  ) {
+    return this.ticketsService.create(actorId, dto, file);
   }
 
   @Patch('bulk/status')

@@ -88,8 +88,25 @@ model TeamMember {
   reviewedTickets  Ticket[]      @relation("TicketReviewedBy")
   ticketReviews    TicketReview[]
   loginAudits      LoginAudit[]
+  meetingsCreated  Meeting[]
 
   @@index([passwordResetTokenHash])
+}
+
+model Meeting {
+  id             String     @id @default(cuid())
+  scheduledAt    DateTime
+  meetingUrl     String
+  note           String?
+  createdById    String
+  reminderSentAt DateTime?
+  canceledAt     DateTime?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  createdBy      TeamMember @relation(fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([scheduledAt, canceledAt])
+  @@index([reminderSentAt])
 }
 
 model TicketAssignment {

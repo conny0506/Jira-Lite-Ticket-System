@@ -60,9 +60,15 @@ npm run dev -w @jira-lite/web
 - Tum proje:
   - `npm run dev`
   - `npm run build`
+  - `npm run build:apps`
+  - `npm run typecheck`
+  - `npm run verify`
 - API:
   - `npm run dev -w @jira-lite/api`
   - `npm run build -w @jira-lite/api`
+  - `npm run typecheck -w @jira-lite/api`
+  - `npm run test:e2e -w @jira-lite/api`
 - Web:
   - `npm run dev -w @jira-lite/web`
   - `npm run build -w @jira-lite/web`
+  - `npm run typecheck -w @jira-lite/web`

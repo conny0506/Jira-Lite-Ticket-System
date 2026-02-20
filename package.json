@@ -9,6 +9,10 @@
     "dev": "npm run dev -w @jira-lite/api & npm run dev -w @jira-lite/web",
     "dev:api": "npm run dev -w @jira-lite/api",
     "dev:web": "npm run dev -w @jira-lite/web",
-    "build": "npm run prisma:generate -w @jira-lite/api && npm run build -w @jira-lite/api && npm run build -w @jira-lite/web"
+    "typecheck": "node scripts/run-parallel.mjs \"npm run typecheck -w @jira-lite/api\" \"npm run typecheck -w @jira-lite/web\"",
+    "build:apps": "node scripts/run-parallel.mjs \"npm run build -w @jira-lite/api\" \"npm run build -w @jira-lite/web\"",
+    "build": "npm run prisma:generate -w @jira-lite/api && npm run build:apps",
+    "test:e2e:api": "npm run test:e2e -w @jira-lite/api",
+    "verify": "npm run typecheck && npm run build && npm run test:e2e:api"
   }
 }

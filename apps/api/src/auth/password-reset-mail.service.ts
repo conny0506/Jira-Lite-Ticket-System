@@ -12,6 +12,15 @@ export class PasswordResetMailService {
   private readonly logger = new Logger(PasswordResetMailService.name);
   private readonly provider = (process.env.EMAIL_PROVIDER ?? 'smtp').toLowerCase().trim();
 
+  private escapeHtml(input: string) {
+    return input
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   private buildPasswordResetContent(params: { name: string; resetUrl: string }): EmailContent {
     return {
       subject: 'Jira-lite sifre sifirlama baglantisi',
@@ -116,6 +125,70 @@ export class PasswordResetMailService {
     });
 
     await this.sendEmail({ to: params.to, content });
+  }
+
+  async sendBugReportEmail(params: {
+    to: string;
+    description: string;
+    userName?: string;
+    userEmail?: string;
+    pageUrl?: string;
+    userAgent?: string;
+    ip?: string;
+  }) {
+    const content = this.buildBugReportContent(params);
+    await this.sendEmail({ to: params.to, content });
+  }
+
+  private buildBugReportContent(params: {
+    description: string;
+    userName?: string;
+    userEmail?: string;
+    pageUrl?: string;
+    userAgent?: string;
+    ip?: string;
+  }): EmailContent {
+    const now = new Date().toISOString();
+    const userLine = params.userName?.trim() ? params.userName.trim() : 'Bilinmiyor';
+    const emailLine = params.userEmail?.trim() ? params.userEmail.trim() : 'Bilinmiyor';
+    const pageLine = params.pageUrl?.trim() ? params.pageUrl.trim() : 'Bilinmiyor';
+    const userAgentLine = params.userAgent?.trim() ? params.userAgent.trim() : 'Bilinmiyor';
+    const ipLine = params.ip?.trim() ? params.ip.trim() : 'Bilinmiyor';
+    const description = params.description.trim();
+    const safeUserLine = this.escapeHtml(userLine);
+    const safeEmailLine = this.escapeHtml(emailLine);
+    const safePageLine = this.escapeHtml(pageLine);
+    const safeIpLine = this.escapeHtml(ipLine);
+    const safeUserAgentLine = this.escapeHtml(userAgentLine);
+    const safeDescription = this.escapeHtml(description);
+
+    return {
+      subject: `Jira-lite Hata Raporu - ${now}`,
+      text: [
+        'Yeni bir hata raporu alindi.',
+        '',
+        `Zaman: ${now}`,
+        `Kullanici: ${userLine}`,
+        `E-posta: ${emailLine}`,
+        `Sayfa: ${pageLine}`,
+        `IP: ${ipLine}`,
+        `User-Agent: ${userAgentLine}`,
+        '',
+        'Aciklama:',
+        description,
+      ].join('\n'),
+      html: `
+        <p><strong>Yeni bir hata raporu alindi.</strong></p>
+        <p><strong>Zaman:</strong> ${now}</p>
+        <p><strong>Kullanici:</strong> ${safeUserLine}</p>
+        <p><strong>E-posta:</strong> ${safeEmailLine}</p>
+        <p><strong>Sayfa:</strong> ${safePageLine}</p>
+        <p><strong>IP:</strong> ${safeIpLine}</p>
+        <p><strong>User-Agent:</strong> ${safeUserAgentLine}</p>
+        <p><strong>Aciklama:</strong></p>
+        <pre style="white-space: pre-wrap; word-break: break-word;">${safeDescription}</pre>
+      `,
+    };
   }
 
   private async sendEmail(params: { to: string; content: EmailContent }) {

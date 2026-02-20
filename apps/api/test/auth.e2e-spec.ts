@@ -4,6 +4,7 @@ import * as request from 'supertest';
 import { AuthController } from '../src/auth/auth.controller';
 import { AuthRateLimitService } from '../src/auth/auth-rate-limit.service';
 import { AuthService } from '../src/auth/auth.service';
+import { PasswordResetMailService } from '../src/auth/password-reset-mail.service';
 
 describe('AuthController (e2e)', () => {
   let app: INestApplication;
@@ -19,12 +20,17 @@ describe('AuthController (e2e)', () => {
     increment: jest.fn(),
   };
 
+  const passwordResetMailServiceMock = {
+    sendBugReportEmail: jest.fn(),
+  };
+
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
       controllers: [AuthController],
       providers: [
         { provide: AuthService, useValue: authServiceMock },
         { provide: AuthRateLimitService, useValue: authRateLimitServiceMock },
+        { provide: PasswordResetMailService, useValue: passwordResetMailServiceMock },
       ],
     }).compile();
 
@@ -85,5 +91,16 @@ describe('AuthController (e2e)', () => {
       .post('/auth/login')
       .send({ email: 'captain@example.com', password: '1234' })
       .expect(429);
+  });
+
+  it('POST /auth/bug-report accepts valid payload', async () => {
+    passwordResetMailServiceMock.sendBugReportEmail.mockResolvedValue(undefined);
+
+    await request(app.getHttpServer())
+      .post('/auth/bug-report')
+      .send({ description: 'Sayfa gorev olustururken hata veriyor.' })
+      .expect(201);
+
+    expect(passwordResetMailServiceMock.sendBugReportEmail).toHaveBeenCalledTimes(1);
   });
 });

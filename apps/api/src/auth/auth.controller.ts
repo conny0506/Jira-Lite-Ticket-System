@@ -13,6 +13,7 @@ import {
 import { AuthRateLimitService } from './auth-rate-limit.service';
 import { AuthService } from './auth.service';
 import { CurrentUserId } from './current-user-id.decorator';
+import { BugReportDto } from './dto/bug-report.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
@@ -20,12 +21,14 @@ import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
+import { PasswordResetMailService } from './password-reset-mail.service';
 
 @Controller('auth')
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly authRateLimitService: AuthRateLimitService,
+    private readonly passwordResetMailService: PasswordResetMailService,
   ) {}
 
   private getCookieOptions() {
@@ -158,6 +161,21 @@ export class AuthController {
   @Post('forgot-password')
   async forgotPassword(@Body() dto: ForgotPasswordDto) {
     return this.authService.forgotPassword(dto.email);
+  }
+
+  @Post('bug-report')
+  async bugReport(@Req() req: any, @Body() dto: BugReportDto) {
+    const to = (process.env.BUG_REPORT_EMAIL_TO ?? 'mustafa.din067@gmail.com').trim();
+    await this.passwordResetMailService.sendBugReportEmail({
+      to,
+      description: dto.description,
+      userName: dto.userName,
+      userEmail: dto.userEmail,
+      pageUrl: dto.pageUrl,
+      userAgent: req.headers?.['user-agent'] ?? '',
+      ip: this.readClientIp(req),
+    });
+    return { ok: true };
   }
 
   @Patch('change-password')

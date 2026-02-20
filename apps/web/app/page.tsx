@@ -182,6 +182,10 @@ export default function HomePage() {
   const [introStage, setIntroStage] = useState<IntroStage>('none');
   const [introQuote, setIntroQuote] = useState(SUCCESS_QUOTES[0]);
   const [introTypedChars, setIntroTypedChars] = useState(0);
+  const [isBugReportOpen, setIsBugReportOpen] = useState(false);
+  const [bugReportText, setBugReportText] = useState('');
+  const [isBugReportSending, setIsBugReportSending] = useState(false);
+  const [bugReportError, setBugReportError] = useState('');
   const toastIdRef = useRef(1);
 
   const currentUser = authBundle?.user ?? null;
@@ -954,6 +958,44 @@ export default function HomePage() {
     showToast('success', 'Oturum kapatıldı');
   }
 
+  async function submitBugReport(e: FormEvent) {
+    e.preventDefault();
+    if (isBugReportSending) return;
+    const description = bugReportText.trim();
+    if (description.length < 10) {
+      setBugReportError('Lutfen en az 10 karakterlik bir aciklama yazin.');
+      return;
+    }
+
+    try {
+      setIsBugReportSending(true);
+      setBugReportError('');
+      const res = await fetch(`${API_URL}/auth/bug-report`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          description,
+          userName: currentUser?.name,
+          userEmail: currentUser?.email,
+          pageUrl: typeof window !== 'undefined' ? window.location.href : '',
+        }),
+      });
+      if (!res.ok) {
+        throw new Error(await extractErrorMessage(res));
+      }
+      setBugReportText('');
+      setIsBugReportOpen(false);
+      showToast('success', 'Hata raporu gonderildi.');
+    } catch (error) {
+      const message =
+        error instanceof TypeError ? NETWORK_ERROR_MESSAGE : (error as Error).message;
+      setBugReportError(message);
+    } finally {
+      setIsBugReportSending(false);
+    }
+  }
+
   async function createMember(e: FormEvent) {
     e.preventDefault();
     if (!isCaptain) return;
@@ -1386,6 +1428,57 @@ export default function HomePage() {
             Sifremi unuttum
           </Link>
         </section>
+        <button
+          type="button"
+          className="bugFab"
+          aria-label="Hata raporu gonder"
+          onClick={() => {
+            setBugReportError('');
+            setIsBugReportOpen(true);
+          }}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M14 5h2a1 1 0 0 0 0-2h-2.18A3 3 0 0 0 12 2a3 3 0 0 0-1.82 1H8a1 1 0 1 0 0 2h2v1.08A6.5 6.5 0 0 0 6.26 9H4a1 1 0 0 0 0 2h1.51a8.29 8.29 0 0 0-.01 2H4a1 1 0 0 0 0 2h2.26A6.5 6.5 0 0 0 10 17.92V20a1 1 0 1 0 2 0v-2.08A6.5 6.5 0 0 0 17.74 15H20a1 1 0 1 0 0-2h-1.5a8.29 8.29 0 0 0 0-2H20a1 1 0 1 0 0-2h-2.26A6.5 6.5 0 0 0 14 6.08V5Zm-2-1a1 1 0 0 1 1 1v1h-2V5a1 1 0 0 1 1-1Zm0 4a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9Z"
+            />
+          </svg>
+        </button>
+        {isBugReportOpen && (
+          <div className="bugModalBackdrop" role="dialog" aria-modal="true">
+            <section className="bugModal panel">
+              <h3>Hata Raporu Gonder</h3>
+              <p className="muted">
+                Aciklamaniz e-posta ile mustafa.din067@gmail.com adresine gonderilir.
+              </p>
+              <form className="formBlock" onSubmit={submitBugReport}>
+                <textarea
+                  value={bugReportText}
+                  onChange={(event) => {
+                    setBugReportText(event.target.value);
+                    setBugReportError('');
+                  }}
+                  placeholder="Karsilastiginiz sorunu adim adim yazin..."
+                  required
+                />
+                {bugReportError && <p className="fieldError">{bugReportError}</p>}
+                <div className="bugModalActions">
+                  <button
+                    type="button"
+                    className="bugSecondaryBtn"
+                    onClick={() => setIsBugReportOpen(false)}
+                    disabled={isBugReportSending}
+                  >
+                    Vazgec
+                  </button>
+                  <button type="submit" disabled={isBugReportSending}>
+                    {isBugReportSending ? 'Gonderiliyor...' : 'Gonder'}
+                  </button>
+                </div>
+              </form>
+            </section>
+          </div>
+        )}
       </main>
     );
   }
@@ -2167,6 +2260,57 @@ export default function HomePage() {
           </AnimatePresence>
         </section>
       </section>
+      <button
+        type="button"
+        className="bugFab"
+        aria-label="Hata raporu gonder"
+        onClick={() => {
+          setBugReportError('');
+          setIsBugReportOpen(true);
+        }}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            fill="currentColor"
+            d="M14 5h2a1 1 0 0 0 0-2h-2.18A3 3 0 0 0 12 2a3 3 0 0 0-1.82 1H8a1 1 0 1 0 0 2h2v1.08A6.5 6.5 0 0 0 6.26 9H4a1 1 0 0 0 0 2h1.51a8.29 8.29 0 0 0-.01 2H4a1 1 0 0 0 0 2h2.26A6.5 6.5 0 0 0 10 17.92V20a1 1 0 1 0 2 0v-2.08A6.5 6.5 0 0 0 17.74 15H20a1 1 0 1 0 0-2h-1.5a8.29 8.29 0 0 0 0-2H20a1 1 0 1 0 0-2h-2.26A6.5 6.5 0 0 0 14 6.08V5Zm-2-1a1 1 0 0 1 1 1v1h-2V5a1 1 0 0 1 1-1Zm0 4a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9Z"
+          />
+        </svg>
+      </button>
+      {isBugReportOpen && (
+        <div className="bugModalBackdrop" role="dialog" aria-modal="true">
+          <section className="bugModal panel">
+            <h3>Hata Raporu Gonder</h3>
+            <p className="muted">
+              Aciklamaniz e-posta ile mustafa.din067@gmail.com adresine gonderilir.
+            </p>
+            <form className="formBlock" onSubmit={submitBugReport}>
+              <textarea
+                value={bugReportText}
+                onChange={(event) => {
+                  setBugReportText(event.target.value);
+                  setBugReportError('');
+                }}
+                placeholder="Karsilastiginiz sorunu adim adim yazin..."
+                required
+              />
+              {bugReportError && <p className="fieldError">{bugReportError}</p>}
+              <div className="bugModalActions">
+                <button
+                  type="button"
+                  className="bugSecondaryBtn"
+                  onClick={() => setIsBugReportOpen(false)}
+                  disabled={isBugReportSending}
+                >
+                  Vazgec
+                </button>
+                <button type="submit" disabled={isBugReportSending}>
+                  {isBugReportSending ? 'Gonderiliyor...' : 'Gonder'}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
     </main>
   );
 }

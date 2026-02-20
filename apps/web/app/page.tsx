@@ -108,6 +108,68 @@ const SUCCESS_QUOTES = [
   'Başarı tesadüf değil, tekrarlanan doğru davranıştır.',
 ];
 
+type TicketCreateDraft = {
+  title: string;
+  description: string;
+  priority: TicketPriority;
+  dueAt: string;
+  primaryAssigneeId: string;
+  secondaryAssigneeId: string;
+  attachmentFile: File | null;
+  attachmentNote: string;
+};
+
+function normalizeAssigneeIds(assigneeIds: string[]) {
+  return [...new Set(assigneeIds.filter(Boolean))];
+}
+
+function validateOptionalUploadFile(file: File | null) {
+  if (!file) return null;
+  if (file.size > MAX_UPLOAD_SIZE_BYTES) {
+    return 'Dosya boyutu 25MB sinirini asamaz';
+  }
+  const ext = file.name.toLowerCase().split('.').pop() ?? '';
+  if (!ALLOWED_UPLOAD_EXTENSIONS.has(ext)) {
+    return 'Yalnizca pdf/doc/docx/ppt/pptx yuklenebilir';
+  }
+  return null;
+}
+
+function validateTicketCreateDraft(draft: TicketCreateDraft) {
+  if (draft.title.length < 3) {
+    return 'Gorev basligi en az 3 karakter olmali';
+  }
+  if (!draft.primaryAssigneeId) {
+    return 'En az 1 atanan secmelisin';
+  }
+  if (
+    draft.secondaryAssigneeId &&
+    draft.secondaryAssigneeId === draft.primaryAssigneeId
+  ) {
+    return 'Ikinci atanan, birinci atanan ile ayni olamaz';
+  }
+  return validateOptionalUploadFile(draft.attachmentFile);
+}
+
+function buildCreateTicketFormData(draft: TicketCreateDraft) {
+  const form = new FormData();
+  form.set('title', draft.title);
+  form.set('description', draft.description);
+  form.set('priority', draft.priority);
+  form.set('dueAt', new Date(draft.dueAt).toISOString());
+  form.append('assigneeIds', draft.primaryAssigneeId);
+  if (draft.secondaryAssigneeId) {
+    form.append('assigneeIds', draft.secondaryAssigneeId);
+  }
+  if (draft.attachmentNote.trim()) {
+    form.set('attachmentNote', draft.attachmentNote.trim());
+  }
+  if (draft.attachmentFile) {
+    form.set('file', draft.attachmentFile);
+  }
+  return form;
+}
+
 function pickNextQuote(previousQuote: string) {
   if (SUCCESS_QUOTES.length < 2) return SUCCESS_QUOTES[0] ?? previousQuote;
   let next = previousQuote;
@@ -147,7 +209,10 @@ export default function HomePage() {
   const [ticketDesc, setTicketDesc] = useState('');
   const [ticketPriority, setTicketPriority] = useState<TicketPriority>('MEDIUM');
   const [ticketDueAt, setTicketDueAt] = useState('');
-  const [ticketAssignees, setTicketAssignees] = useState<string[]>([]);
+  const [ticketPrimaryAssigneeId, setTicketPrimaryAssigneeId] = useState('');
+  const [ticketSecondaryAssigneeId, setTicketSecondaryAssigneeId] = useState('');
+  const [ticketAttachmentFile, setTicketAttachmentFile] = useState<File | null>(null);
+  const [ticketAttachmentNote, setTicketAttachmentNote] = useState('');
 
   const [uploadDrafts, setUploadDrafts] = useState<Record<string, UploadDraft>>({});
   const [captainFileDrafts, setCaptainFileDrafts] =
@@ -203,8 +268,13 @@ export default function HomePage() {
   const currentUser = authBundle?.user ?? null;
   const isCaptain = currentUser?.role === 'CAPTAIN';
   const isMember = currentUser?.role === 'MEMBER';
+  const isBoard = currentUser?.role === 'BOARD';
   const systemProject = projects.find((p) => p.key === 'ULGEN-SYSTEM') ?? projects[0];
-  const filteredTeamMembers = teamMembers.filter((m) => {
+  const workspaceProjectCount = projects.filter(
+    (project) => project.key !== 'ULGEN-SYSTEM',
+  ).length;
+  const activeTeamMembers = teamMembers.filter((member) => member.active);
+  const filteredTeamMembers = activeTeamMembers.filter((m) => {
     const bySearch =
       m.name.toLowerCase().includes(teamSearch.toLowerCase()) ||
       m.email.toLowerCase().includes(teamSearch.toLowerCase());
@@ -321,6 +391,7 @@ export default function HomePage() {
     () => tickets.filter((x) => x.status !== 'DONE').length,
     [tickets],
   );
+  const summaryTaskCount = isCaptain ? captainOpenTaskCount : myActiveTaskCount;
 
   const captainTrendLast7 = useMemo(() => {
     const start = captainMetricsStart ? new Date(`${captainMetricsStart}T00:00:00`) : null;
@@ -505,10 +576,7 @@ export default function HomePage() {
     return introTerminalLines[lineIndex].slice(0, visibleChars);
   };
 
-  const captainMemberPages = useMemo(
-    () => teamMembers.filter((member) => member.active),
-    [teamMembers],
-  );
+  const captainMemberPages = useMemo(() => activeTeamMembers, [activeTeamMembers]);
 
   const captainFocusedMember = useMemo(
     () => captainMemberPages.find((member) => member.id === captainMemberFocusId) ?? null,
@@ -798,6 +866,9 @@ export default function HomePage() {
       setMemberTab('my_tasks');
       setTeamRoleFilter('ALL');
       return;
+    }
+    if (currentUser.role === 'BOARD') {
+      setMemberTab('my_tasks');
     }
     setCaptainTab('overview');
   }, [currentUser]);
@@ -1098,31 +1169,38 @@ export default function HomePage() {
     if (isCreatingTicket) return;
     setError('');
     setTicketFieldError('');
-    const title = ticketTitle.trim();
-    if (title.length < 3) {
-      setTicketFieldError('Gorev basligi en az 3 karakter olmali');
+    const draft: TicketCreateDraft = {
+      title: ticketTitle.trim(),
+      description: ticketDesc || '',
+      priority: ticketPriority,
+      dueAt: ticketDueAt,
+      primaryAssigneeId: ticketPrimaryAssigneeId,
+      secondaryAssigneeId: ticketSecondaryAssigneeId,
+      attachmentFile: ticketAttachmentFile,
+      attachmentNote: ticketAttachmentNote,
+    };
+    const validationError = validateTicketCreateDraft(draft);
+    if (validationError) {
+      setTicketFieldError(validationError);
       return;
     }
+
     try {
       setIsCreatingTicket(true);
       await apiFetch('/tickets', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title,
-          description: ticketDesc || undefined,
-          priority: ticketPriority,
-          dueAt: new Date(ticketDueAt).toISOString(),
-          assigneeIds: ticketAssignees,
-        }),
+        body: buildCreateTicketFormData(draft),
       });
       setTicketTitle('');
       setTicketDesc('');
       setTicketPriority('MEDIUM');
       setTicketDueAt('');
-      setTicketAssignees([]);
+      setTicketPrimaryAssigneeId('');
+      setTicketSecondaryAssigneeId('');
+      setTicketAttachmentFile(null);
+      setTicketAttachmentNote('');
       await loadAll();
-      showToast('success', 'Görev oluşturuldu');
+      showToast('success', 'Gorev olusturuldu');
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -1133,19 +1211,32 @@ export default function HomePage() {
   async function updateTicketAssignees(ticket: Ticket, assigneeIds: string[]) {
     if (!isCaptain) return;
     setError('');
+    const uniqueAssigneeIds = normalizeAssigneeIds(assigneeIds);
+    if (uniqueAssigneeIds.length < 1) {
+      const message = 'Gorev en az 1 kisiye atanmali';
+      setError(message);
+      showToast('error', message);
+      return;
+    }
+    if (uniqueAssigneeIds.length > 2) {
+      const message = 'En fazla 2 kisi atanabilir';
+      setError(message);
+      showToast('error', message);
+      return;
+    }
+
     try {
       await apiFetch(`/tickets/${ticket.id}/assignee`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assigneeIds }),
+        body: JSON.stringify({ assigneeIds: uniqueAssigneeIds }),
       });
       await loadAll();
-      showToast('success', 'Atananlar güncellendi');
+      showToast('success', 'Atananlar guncellendi');
     } catch (e) {
       setError((e as Error).message);
     }
   }
-
   async function deleteTicket(ticket: Ticket) {
     if (!isCaptain) return;
     const ok = window.confirm('Emin misin?');
@@ -1310,6 +1401,10 @@ export default function HomePage() {
   }
 
   async function submitFile(ticket: Ticket) {
+    if (isBoard) {
+      showToast('error', 'Yonetim kurulu teslim gonderemez');
+      return;
+    }
     if (uploadingTicketId === ticket.id) return;
     const draft = uploadDrafts[ticket.id];
     clearUploadFieldError(ticket.id);
@@ -1339,7 +1434,9 @@ export default function HomePage() {
       const form = new FormData();
       form.set('submittedById', currentUser.id);
       form.set('note', draft.note);
-      form.set('lateReason', lateReason);
+      if (lateReason.length > 0) {
+        form.set('lateReason', lateReason);
+      }
       form.set('file', draft.file);
       await apiFetch(`/tickets/${ticket.id}/submissions`, {
         method: 'POST',
@@ -1687,11 +1784,11 @@ export default function HomePage() {
         <div className="stats">
           <article className="statCard">
             <span>Sistem</span>
-            <strong>{projects.length}</strong>
+            <strong>{workspaceProjectCount}</strong>
           </article>
           <article className="statCard">
             <span>Görev</span>
-            <strong>{tickets.length}</strong>
+            <strong>{summaryTaskCount}</strong>
           </article>
           <article className="statCard">
             <span>Teslim</span>
@@ -1790,7 +1887,7 @@ export default function HomePage() {
                   }`}
                   onClick={() => setMemberTab('my_tasks')}
                 >
-                  <span>Bana Atananlar</span>
+                  <span>Aktif Gorevlerim</span>
                   <b className={`tabCountBadge ${myUnseenTaskCount > 0 ? 'hot' : ''}`}>
                     {myUnseenTaskCount}
                   </b>
@@ -1798,8 +1895,12 @@ export default function HomePage() {
                     <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />
                   )}
                 </button>
-                <button type="button" className={memberTab === 'my_submissions' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('my_submissions')}><span>Teslimlerim</span>{memberTab === 'my_submissions' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
-                <button type="button" className={memberTab === 'timeline' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('timeline')}><span>Akış</span>{memberTab === 'timeline' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                {!isBoard && (
+                  <button type="button" className={memberTab === 'my_submissions' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('my_submissions')}><span>Teslimlerim</span>{memberTab === 'my_submissions' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                )}
+                {!isBoard && (
+                  <button type="button" className={memberTab === 'timeline' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('timeline')}><span>Akış</span>{memberTab === 'timeline' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                )}
               </div>
             </LayoutGroup>
           )}
@@ -1834,9 +1935,9 @@ export default function HomePage() {
               <article className="infoCard">
                 <h3>Takım Dağılımı</h3>
                 <p>
-                  Kaptan {teamMembers.filter((x) => x.role === 'CAPTAIN').length} | Kurul{' '}
-                  {teamMembers.filter((x) => x.role === 'BOARD').length} | Üye{' '}
-                  {teamMembers.filter((x) => x.role === 'MEMBER').length}
+                  Kaptan {activeTeamMembers.filter((x) => x.role === 'CAPTAIN').length} | Kurul{' '}
+                  {activeTeamMembers.filter((x) => x.role === 'BOARD').length} | Üye{' '}
+                  {activeTeamMembers.filter((x) => x.role === 'MEMBER').length}
                 </p>
               </article>
               <article className="infoCard">
@@ -2026,13 +2127,53 @@ export default function HomePage() {
                   <option value="HIGH">{PRIORITY_LABELS.HIGH}</option>
                   <option value="CRITICAL">{PRIORITY_LABELS.CRITICAL}</option>
                 </select>
-                <select multiple value={ticketAssignees} onChange={(e) => setTicketAssignees(Array.from(e.currentTarget.selectedOptions).map((o) => o.value))}>
-                  {teamMembers.map((m) => (
+                <select
+                  value={ticketPrimaryAssigneeId}
+                  onChange={(e) => {
+                    const nextPrimary = e.target.value;
+                    setTicketPrimaryAssigneeId(nextPrimary);
+                    if (ticketSecondaryAssigneeId === nextPrimary) {
+                      setTicketSecondaryAssigneeId('');
+                    }
+                  }}
+                  required
+                >
+                  <option value="">1. atanan (zorunlu)</option>
+                  {activeTeamMembers.map((m) => (
                     <option key={m.id} value={m.id}>
                       {m.name}
                     </option>
                   ))}
                 </select>
+                <select
+                  value={ticketSecondaryAssigneeId}
+                  onChange={(e) => setTicketSecondaryAssigneeId(e.target.value)}
+                >
+                  <option value="">2. atanan (opsiyonel)</option>
+                  {activeTeamMembers
+                    .filter((m) => m.id !== ticketPrimaryAssigneeId)
+                    .map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name}
+                      </option>
+                    ))}
+                </select>
+                <input
+                  type="file"
+                  accept=".pdf,.doc,.docx,.ppt,.pptx"
+                  onChange={(e) =>
+                    setTicketAttachmentFile(
+                      e.currentTarget.files && e.currentTarget.files[0]
+                        ? e.currentTarget.files[0]
+                        : null,
+                    )
+                  }
+                />
+                <textarea
+                  placeholder="Dosya notu (opsiyonel)"
+                  value={ticketAttachmentNote}
+                  onChange={(e) => setTicketAttachmentNote(e.target.value)}
+                />
                 {ticketFieldError && <p className="fieldError">{ticketFieldError}</p>}
                 <button type="submit" disabled={isCreatingTicket}>
                   {isCreatingTicket ? 'Olusturuluyor...' : 'Gorev Olustur'}
@@ -2058,8 +2199,22 @@ export default function HomePage() {
                         .join(', ') || 'Yok'}
                     </p>
                     <div className="projectActions">
-                      <select multiple value={ticket.assignees.map((x) => x.member.id)} onChange={(e) => updateTicketAssignees(ticket, Array.from(e.currentTarget.selectedOptions).map((o) => o.value))}>
-                        {teamMembers.map((m) => (
+                      <select
+                        multiple
+                        value={ticket.assignees.map((x) => x.member.id)}
+                        onChange={(e) => {
+                          const next = Array.from(
+                            e.currentTarget.selectedOptions,
+                          ).map((o) => o.value);
+                          if (next.length > 2) {
+                            setError('En fazla 2 kisi atanabilir');
+                            showToast('error', 'En fazla 2 kisi atanabilir');
+                            return;
+                          }
+                          void updateTicketAssignees(ticket, next);
+                        }}
+                      >
+                        {activeTeamMembers.map((m) => (
                           <option key={m.id} value={m.id}>
                             {m.name}
                           </option>
@@ -2341,49 +2496,56 @@ export default function HomePage() {
                           ))}
                       </div>
                     )}
-                    <div className="submissionBox">
-                      <h4>Teslim Dosyasi</h4>
-                      <input
-                        type="file"
-                        accept=".pdf,.doc,.docx,.ppt,.pptx"
-                        onChange={(e) =>
-                          setUpload(ticket.id, {
-                            file:
-                              e.currentTarget.files && e.currentTarget.files[0]
-                                ? e.currentTarget.files[0]
-                                : null,
-                          })
-                        }
-                        disabled={uploadingTicketId === ticket.id}
-                      />
-                      <input placeholder="Not" value={uploadDrafts[ticket.id]?.note ?? ''} onChange={(e) => setUpload(ticket.id, { note: e.target.value })} />
-                      {ticket.dueAt && new Date(ticket.dueAt).getTime() < Date.now() && (
+                    {!isBoard ? (
+                      <div className="submissionBox">
+                        <h4>Teslim Dosyasi</h4>
                         <input
-                          placeholder="Gec teslim mazereti (zorunlu)"
-                          value={uploadDrafts[ticket.id]?.lateReason ?? ''}
-                          onChange={(e) => setUpload(ticket.id, { lateReason: e.target.value })}
+                          type="file"
+                          accept=".pdf,.doc,.docx,.ppt,.pptx"
+                          onChange={(e) =>
+                            setUpload(ticket.id, {
+                              file:
+                                e.currentTarget.files && e.currentTarget.files[0]
+                                  ? e.currentTarget.files[0]
+                                  : null,
+                            })
+                          }
+                          disabled={uploadingTicketId === ticket.id}
                         />
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => submitFile(ticket)}
-                        disabled={uploadingTicketId === ticket.id}
-                      >
-                        {uploadingTicketId === ticket.id
-                          ? 'Gonderiliyor...'
-                          : 'Teslim Gonder'}
-                      </button>
-                      {uploadFieldErrors[ticket.id] && (
-                        <p className="fieldError">{uploadFieldErrors[ticket.id]}</p>
-                      )}
-                    </div>
+                        <input placeholder="Not" value={uploadDrafts[ticket.id]?.note ?? ''} onChange={(e) => setUpload(ticket.id, { note: e.target.value })} />
+                        {ticket.dueAt && new Date(ticket.dueAt).getTime() < Date.now() && (
+                          <input
+                            placeholder="Gec teslim mazereti (zorunlu)"
+                            value={uploadDrafts[ticket.id]?.lateReason ?? ''}
+                            onChange={(e) => setUpload(ticket.id, { lateReason: e.target.value })}
+                          />
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => submitFile(ticket)}
+                          disabled={uploadingTicketId === ticket.id}
+                        >
+                          {uploadingTicketId === ticket.id
+                            ? 'Gonderiliyor...'
+                            : 'Teslim Gonder'}
+                        </button>
+                        {uploadFieldErrors[ticket.id] && (
+                          <p className="fieldError">{uploadFieldErrors[ticket.id]}</p>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="submissionBox">
+                        <h4>Teslim Dosyasi</h4>
+                        <p className="muted">Yonetim kurulu bu alanda sadece goruntuleme yetkisine sahiptir.</p>
+                      </div>
+                    )}
                   </article>
                 ))}
                 {myTickets.length === 0 && <p className="muted">Uzerinde calistigin gorev yok.</p>}
               </div>
             </motion.div>
           )}
-{!loading && !isCaptain && memberTab === 'my_submissions' && (
+{!loading && !isCaptain && !isBoard && memberTab === 'my_submissions' && (
             <motion.div
               key="member-submissions"
               className="tabScene"
@@ -2418,7 +2580,7 @@ export default function HomePage() {
             </motion.div>
           )}
 
-          {!loading && !isCaptain && memberTab === 'timeline' && (
+          {!loading && !isCaptain && !isBoard && memberTab === 'timeline' && (
             <motion.ul
               key="member-timeline"
               className="timeline tabScene"
@@ -2492,6 +2654,7 @@ export default function HomePage() {
     </main>
   );
 }
+
 
 
 

@@ -17,6 +17,7 @@ describe('TicketsController bulk status (e2e)', () => {
     remove: jest.fn(),
     listSubmissions: jest.fn(),
     createSubmission: jest.fn(),
+    createCaptainFile: jest.fn(),
     getSubmissionFile: jest.fn(),
   };
 
@@ -87,5 +88,24 @@ describe('TicketsController bulk status (e2e)', () => {
       .patch('/tickets/bulk/status')
       .send({ ticketIds: ['t1'], status: 'DONE' })
       .expect(400);
+  });
+
+  it('POST /tickets/:id/captain-files allows captain upload flow', async () => {
+    const token = signAccessToken({ sub: 'captain-id', role: 'CAPTAIN' }, 300);
+    ticketsServiceMock.createCaptainFile.mockResolvedValue({
+      id: 's1',
+      fileName: 'guide.pdf',
+      submittedBy: { id: 'captain-id', name: 'Captain', role: 'CAPTAIN' },
+    });
+
+    const res = await request(app.getHttpServer())
+      .post('/tickets/t1/captain-files')
+      .set('Authorization', `Bearer ${token}`)
+      .field('note', 'Dikkat et')
+      .attach('file', Buffer.from('%PDF-1.4'), 'guide.pdf')
+      .expect(201);
+
+    expect(res.body.id).toBe('s1');
+    expect(ticketsServiceMock.createCaptainFile).toHaveBeenCalledTimes(1);
   });
 });

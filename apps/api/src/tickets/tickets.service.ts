@@ -21,6 +21,7 @@ import { ReviewTicketDto, TicketReviewAction } from './dto/review-ticket.dto';
 import { UpdateTicketAssigneeDto } from './dto/update-ticket-assignee.dto';
 import { UpdateTicketStatusDto } from './dto/update-ticket-status.dto';
 import { MarkTicketsSeenDto } from './dto/mark-tickets-seen.dto';
+import { UploadCaptainFileDto } from './dto/upload-captain-file.dto';
 
 @Injectable()
 export class TicketsService {
@@ -598,6 +599,83 @@ export class TicketsService {
 
     return submission;
   }
+
+  async createCaptainFile(
+    actorId: string,
+    ticketId: string,
+    dto: UploadCaptainFileDto,
+    file: {
+      buffer: Buffer;
+      originalname: string;
+      mimetype: string;
+      size: number;
+    },
+  ) {
+    const actor = await this.authService.getActorOrThrow(actorId);
+    if (actor.role !== TeamRole.CAPTAIN) {
+      throw new BadRequestException('Sadece kaptan dosya gonderebilir');
+    }
+    if (!file) throw new BadRequestException('Dosya zorunludur');
+    if (!file.buffer || file.buffer.length === 0) {
+      throw new BadRequestException('Bos dosya yuklenemez');
+    }
+    if (file.size > this.maxUploadSizeBytes) {
+      throw new BadRequestException('Maksimum dosya boyutu 25 MB olabilir');
+    }
+
+    const ext = `.${(file.originalname.split('.').pop() ?? '').toLowerCase()}`;
+    if (!this.allowedExtensions.has(ext)) {
+      throw new BadRequestException('Desteklenmeyen dosya tipi');
+    }
+
+    const ticket = await this.prisma.ticket.findUnique({
+      where: { id: ticketId },
+      select: {
+        id: true,
+        assignees: { select: { memberId: true } },
+      },
+    });
+    if (!ticket) {
+      throw new NotFoundException('Gorev bulunamadi');
+    }
+
+    const submittedForMemberId = dto.submittedForMemberId?.trim();
+    if (submittedForMemberId) {
+      const hasAssignee = ticket.assignees.some((x) => x.memberId === submittedForMemberId);
+      if (!hasAssignee) {
+        throw new BadRequestException('Secilen uye goreve atali degil');
+      }
+    }
+
+    const stored = await this.storageService.storeSubmissionFile({
+      originalname: file.originalname,
+      mimetype: file.mimetype,
+      buffer: file.buffer,
+    });
+
+    return this.prisma.submission.create({
+      data: {
+        ticketId,
+        submittedById: actorId,
+        fileName: file.originalname,
+        storageName: stored.storageName,
+        mimeType: file.mimetype,
+        size: file.size,
+        note: [
+          '[CAPTAIN_FILE]',
+          submittedForMemberId ? `to:${submittedForMemberId}` : null,
+          dto.note?.trim() || null,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .slice(0, 500),
+      },
+      include: {
+        submittedBy: { select: { id: true, name: true, role: true } },
+      },
+    });
+  }
+
   async getSubmissionFile(actorId: string, id: string) {
     const submission = await this.prisma.submission.findUnique({
       where: { id },

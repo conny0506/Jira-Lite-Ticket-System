@@ -54,6 +54,12 @@ type UploadDraft = {
   file: File | null;
 };
 
+type CaptainFileDraft = {
+  note: string;
+  submittedForMemberId: string;
+  file: File | null;
+};
+
 type AuthBundle = {
   accessToken: string;
   accessTokenExpiresAt: string;
@@ -126,6 +132,8 @@ export default function HomePage() {
   const [isCreatingMember, setIsCreatingMember] = useState(false);
   const [isCreatingTicket, setIsCreatingTicket] = useState(false);
   const [uploadingTicketId, setUploadingTicketId] = useState<string | null>(null);
+  const [uploadingCaptainFileTicketId, setUploadingCaptainFileTicketId] =
+    useState<string | null>(null);
 
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -142,6 +150,8 @@ export default function HomePage() {
   const [ticketAssignees, setTicketAssignees] = useState<string[]>([]);
 
   const [uploadDrafts, setUploadDrafts] = useState<Record<string, UploadDraft>>({});
+  const [captainFileDrafts, setCaptainFileDrafts] =
+    useState<Record<string, CaptainFileDraft>>({});
   const [refreshingToken, setRefreshingToken] = useState(false);
   const [captainTab, setCaptainTab] = useState<CaptainTab>('overview');
   const [memberTab, setMemberTab] = useState<MemberTab>('my_tasks');
@@ -182,11 +192,13 @@ export default function HomePage() {
   const [introStage, setIntroStage] = useState<IntroStage>('none');
   const [introQuote, setIntroQuote] = useState(SUCCESS_QUOTES[0]);
   const [introTypedChars, setIntroTypedChars] = useState(0);
+  const [memberTasksPulse, setMemberTasksPulse] = useState(false);
   const [isBugReportOpen, setIsBugReportOpen] = useState(false);
   const [bugReportText, setBugReportText] = useState('');
   const [isBugReportSending, setIsBugReportSending] = useState(false);
   const [bugReportError, setBugReportError] = useState('');
   const toastIdRef = useRef(1);
+  const previousUnseenTaskCountRef = useRef(0);
 
   const currentUser = authBundle?.user ?? null;
   const isCaptain = currentUser?.role === 'CAPTAIN';
@@ -244,10 +256,20 @@ export default function HomePage() {
       .filter((ticket) =>
       ticket.assignees.some((x) => x.member.id === currentUser.id),
       )
+      .filter((ticket) => ticket.status !== 'IN_REVIEW' && ticket.status !== 'DONE')
       .filter((ticket) =>
         ticket.title.toLowerCase().includes(memberTaskSearch.toLowerCase()),
       );
   }, [tickets, currentUser, memberTaskSearch]);
+
+  const myUnseenTaskCount = useMemo(() => {
+    if (!currentUser) return 0;
+    return tickets.filter((ticket) =>
+      ticket.assignees.some(
+        (assignment) => assignment.member.id === currentUser.id && !assignment.seenAt,
+      ),
+    ).length;
+  }, [tickets, currentUser]);
 
   const allSubmissions = useMemo(
     () =>
@@ -724,7 +746,7 @@ export default function HomePage() {
     if (!currentUser) return;
     const [projectData, memberData, ticketData] = await Promise.all([
       apiFetch('/projects'),
-      apiFetch('/team-members?activeOnly=true'),
+      apiFetch('/team-members'),
       apiFetch('/tickets'),
     ]);
     setProjects(projectData);
@@ -774,6 +796,7 @@ export default function HomePage() {
     if (!currentUser) return;
     if (currentUser.role === 'CAPTAIN') {
       setMemberTab('my_tasks');
+      setTeamRoleFilter('ALL');
       return;
     }
     setCaptainTab('overview');
@@ -832,6 +855,21 @@ export default function HomePage() {
       })
       .catch((e: Error) => setError(e.message));
   }, [authBundle, loading, currentUser, isMember, memberTab, myTickets]);
+
+  useEffect(() => {
+    if (!isMember) {
+      previousUnseenTaskCountRef.current = 0;
+      setMemberTasksPulse(false);
+      return;
+    }
+    if (myUnseenTaskCount > previousUnseenTaskCountRef.current) {
+      setMemberTasksPulse(true);
+      const timer = setTimeout(() => setMemberTasksPulse(false), 1800);
+      previousUnseenTaskCountRef.current = myUnseenTaskCount;
+      return () => clearTimeout(timer);
+    }
+    previousUnseenTaskCountRef.current = myUnseenTaskCount;
+  }, [isMember, myUnseenTaskCount]);
 
   useEffect(() => {
     if (!authBundle) return;
@@ -1110,6 +1148,8 @@ export default function HomePage() {
 
   async function deleteTicket(ticket: Ticket) {
     if (!isCaptain) return;
+    const ok = window.confirm('Emin misin?');
+    if (!ok) return;
     setError('');
     try {
       await apiFetch(`/tickets/${ticket.id}`, { method: 'DELETE' });
@@ -1244,6 +1284,18 @@ export default function HomePage() {
     }));
   }
 
+  function setCaptainFileDraft(ticketId: string, patch: Partial<CaptainFileDraft>) {
+    setCaptainFileDrafts((prev) => ({
+      ...prev,
+      [ticketId]: {
+        note: prev[ticketId]?.note ?? '',
+        submittedForMemberId: prev[ticketId]?.submittedForMemberId ?? '',
+        file: prev[ticketId]?.file ?? null,
+        ...patch,
+      },
+    }));
+  }
+
   function setUploadFieldError(ticketId: string, message: string) {
     setUploadFieldErrors((prev) => ({ ...prev, [ticketId]: message }));
   }
@@ -1311,6 +1363,48 @@ export default function HomePage() {
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0] ??
       null
     );
+  }
+
+  async function sendCaptainFile(ticket: Ticket) {
+    if (!isCaptain) return;
+    if (uploadingCaptainFileTicketId === ticket.id) return;
+
+    const draft = captainFileDrafts[ticket.id];
+    if (!draft?.file) {
+      setError('Dosya secmeden gonderemezsin');
+      return;
+    }
+    if (draft.file.size > MAX_UPLOAD_SIZE_BYTES) {
+      setError('Maksimum dosya boyutu 25 MB olabilir');
+      return;
+    }
+    const ext = draft.file.name.toLowerCase().split('.').pop() ?? '';
+    if (!ALLOWED_UPLOAD_EXTENSIONS.has(ext)) {
+      setError('Sadece PDF, DOC, DOCX, PPT, PPTX kabul edilir');
+      return;
+    }
+
+    setError('');
+    try {
+      setUploadingCaptainFileTicketId(ticket.id);
+      const form = new FormData();
+      form.set('file', draft.file);
+      form.set('note', draft.note ?? '');
+      if (draft.submittedForMemberId) {
+        form.set('submittedForMemberId', draft.submittedForMemberId);
+      }
+      await apiFetch(`/tickets/${ticket.id}/captain-files`, {
+        method: 'POST',
+        body: form,
+      });
+      setCaptainFileDraft(ticket.id, { file: null, note: '', submittedForMemberId: '' });
+      await loadAll();
+      showToast('success', 'Dosya uyeye iletildi');
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setUploadingCaptainFileTicketId((prev) => (prev === ticket.id ? null : prev));
+    }
   }
 
   function isOnTimeSubmission(ticket: Ticket, submission: Submission) {
@@ -1428,6 +1522,7 @@ export default function HomePage() {
             Sifremi unuttum
           </Link>
         </section>
+        <section className="loginWideImage" aria-label="Giris alt gorseli" />
         <button
           type="button"
           className="bugFab"
@@ -1688,7 +1783,21 @@ export default function HomePage() {
           ) : (
             <LayoutGroup id="member-tabs">
               <div className="tabStack">
-                <button type="button" className={memberTab === 'my_tasks' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('my_tasks')}><span>Bana Atananlar</span>{memberTab === 'my_tasks' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                <button
+                  type="button"
+                  className={`tabBtn ${memberTab === 'my_tasks' ? 'active' : ''} ${
+                    memberTasksPulse ? 'tabPulse' : ''
+                  }`}
+                  onClick={() => setMemberTab('my_tasks')}
+                >
+                  <span>Bana Atananlar</span>
+                  <b className={`tabCountBadge ${myUnseenTaskCount > 0 ? 'hot' : ''}`}>
+                    {myUnseenTaskCount}
+                  </b>
+                  {memberTab === 'my_tasks' && (
+                    <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />
+                  )}
+                </button>
                 <button type="button" className={memberTab === 'my_submissions' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('my_submissions')}><span>Teslimlerim</span>{memberTab === 'my_submissions' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
                 <button type="button" className={memberTab === 'timeline' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('timeline')}><span>Akış</span>{memberTab === 'timeline' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
               </div>
@@ -2095,6 +2204,54 @@ export default function HomePage() {
                               Teslim ret
                             </button>
                           </div>
+                          <div className="submissionBox">
+                            <h4>Uyeye Dosya Gonder</h4>
+                            <input
+                              type="file"
+                              accept=".pdf,.doc,.docx,.ppt,.pptx"
+                              onChange={(e) =>
+                                setCaptainFileDraft(ticket.id, {
+                                  file:
+                                    e.currentTarget.files && e.currentTarget.files[0]
+                                      ? e.currentTarget.files[0]
+                                      : null,
+                                })
+                              }
+                              disabled={uploadingCaptainFileTicketId === ticket.id}
+                            />
+                            <input
+                              placeholder="Not"
+                              value={captainFileDrafts[ticket.id]?.note ?? ''}
+                              onChange={(e) =>
+                                setCaptainFileDraft(ticket.id, { note: e.target.value })
+                              }
+                            />
+                            <select
+                              value={captainFileDrafts[ticket.id]?.submittedForMemberId ?? ''}
+                              onChange={(e) =>
+                                setCaptainFileDraft(ticket.id, {
+                                  submittedForMemberId: e.target.value,
+                                })
+                              }
+                              disabled={uploadingCaptainFileTicketId === ticket.id}
+                            >
+                              <option value="">Tum atanmis uyelere gonder</option>
+                              {ticket.assignees.map((assignment) => (
+                                <option key={assignment.member.id} value={assignment.member.id}>
+                                  {assignment.member.name}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() => sendCaptainFile(ticket)}
+                              disabled={uploadingCaptainFileTicketId === ticket.id}
+                            >
+                              {uploadingCaptainFileTicketId === ticket.id
+                                ? 'Gonderiliyor...'
+                                : 'Dosya Gonder'}
+                            </button>
+                          </div>
                         </article>
                       );
                     })}
@@ -2121,9 +2278,14 @@ export default function HomePage() {
                               {latestSubmission.fileName} | Onay: {ticket.completedAt ? new Date(ticket.completedAt).toLocaleString('tr-TR') : '-'}
                             </p>
                           </div>
-                          <button type="button" onClick={() => downloadSubmission(latestSubmission)}>
-                            Indir
-                          </button>
+                          <div className="archiveActions">
+                            <button type="button" onClick={() => downloadSubmission(latestSubmission)}>
+                              Indir
+                            </button>
+                            <button type="button" onClick={() => deleteTicket(ticket)}>
+                              Gorevi Sil
+                            </button>
+                          </div>
                         </li>
                       );
                     })}
@@ -2162,6 +2324,22 @@ export default function HomePage() {
                     </div>
                     {ticket.reviewNote && (
                       <p className="fieldError">Teslim ret sebebi: {ticket.reviewNote}</p>
+                    )}
+                    {ticket.submissions.filter((submission) => submission.submittedBy.role === 'CAPTAIN').length > 0 && (
+                      <div className="submissionBox">
+                        <h4>Kaptandan Gelen Dosyalar</h4>
+                        {ticket.submissions
+                          .filter((submission) => submission.submittedBy.role === 'CAPTAIN')
+                          .map((submission) => (
+                            <button
+                              key={submission.id}
+                              type="button"
+                              onClick={() => downloadSubmission(submission)}
+                            >
+                              {submission.fileName}
+                            </button>
+                          ))}
+                      </div>
                     )}
                     <div className="submissionBox">
                       <h4>Teslim Dosyasi</h4>

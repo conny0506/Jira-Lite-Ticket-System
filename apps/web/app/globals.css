@@ -334,6 +334,18 @@ body::before {
   object-fit: contain;
 }
 
+.loginQuote {
+  margin: 10px auto 0;
+  width: min(560px, 92vw);
+  text-align: center;
+  font-size: clamp(0.86rem, 1.8vw, 1rem);
+  letter-spacing: 0.07em;
+  font-style: italic;
+  font-weight: 700;
+  color: #d8e9ff;
+  text-shadow: 0 0 14px rgba(35, 164, 255, 0.32);
+}
+
 .introShell {
   min-height: 100vh;
   width: 100%;

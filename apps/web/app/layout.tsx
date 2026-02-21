@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   title: 'Jira-lite',
   description: 'NestJS + Prisma + BullMQ + Next.js tabanli Jira-lite',
   icons: {
-    icon: '/assets/icons/site-icon.jpeg',
+    icon: '/assets/icons/site-icon.jpg',
   },
 };
 

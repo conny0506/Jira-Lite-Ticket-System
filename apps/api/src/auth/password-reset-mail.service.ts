@@ -110,6 +110,164 @@ export class PasswordResetMailService {
     };
   }
 
+  private buildMeetingCanceledContent(params: {
+    name: string;
+    meetingUrl: string;
+    scheduledAt: Date;
+    note?: string;
+  }): EmailContent {
+    const meetingTime = params.scheduledAt.toLocaleString('tr-TR', {
+      timeZone: 'Europe/Istanbul',
+    });
+    const noteLine = params.note?.trim() ? `Toplanti Notu: ${params.note.trim()}` : '';
+    return {
+      subject: 'Bilgilendirme: Planli Toplanti Iptal Edildi',
+      text: [
+        `Merhaba ${params.name},`,
+        '',
+        'Daha once planlanan toplanti iptal edilmistir.',
+        `Iptal edilen toplanti tarihi/saati: ${meetingTime} (TSI)`,
+        `Toplanti baglantisi: ${params.meetingUrl}`,
+        noteLine,
+        '',
+        'Yeni bir toplanti planlamasi yapildiginda ayrica bilgilendirme yapilacaktir.',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+      html: `
+        <p>Merhaba ${this.escapeHtml(params.name)},</p>
+        <p><strong>Daha once planlanan toplanti iptal edilmistir.</strong></p>
+        <p><strong>Iptal edilen toplanti tarihi/saati:</strong> ${this.escapeHtml(meetingTime)} (TSI)</p>
+        <p><strong>Toplanti baglantisi:</strong> <a href="${params.meetingUrl}">${params.meetingUrl}</a></p>
+        ${
+          noteLine
+            ? `<p><strong>Toplanti Notu:</strong> ${this.escapeHtml(params.note!.trim())}</p>`
+            : ''
+        }
+        <p>Yeni bir toplanti planlamasi yapildiginda ayrica bilgilendirme yapilacaktir.</p>
+      `,
+    };
+  }
+
+  private buildMeetingUpdatedContent(params: {
+    name: string;
+    oldScheduledAt: Date;
+    newScheduledAt: Date;
+    meetingUrl: string;
+    note?: string;
+  }): EmailContent {
+    const oldTime = params.oldScheduledAt.toLocaleString('tr-TR', {
+      timeZone: 'Europe/Istanbul',
+    });
+    const newTime = params.newScheduledAt.toLocaleString('tr-TR', {
+      timeZone: 'Europe/Istanbul',
+    });
+    const noteLine = params.note?.trim() ? `Toplanti Notu: ${params.note.trim()}` : '';
+    return {
+      subject: 'Bilgilendirme: Toplanti Tarih/Saati Guncellendi',
+      text: [
+        `Merhaba ${params.name},`,
+        '',
+        'Planli toplantinin tarih/saat bilgisi guncellenmistir.',
+        `Onceki tarih/saat: ${oldTime} (TSI)`,
+        `Guncel tarih/saat: ${newTime} (TSI)`,
+        `Toplanti baglantisi: ${params.meetingUrl}`,
+        noteLine,
+        '',
+        'Katilim planinizi guncel bilgiye gore duzenlemenizi rica ederiz.',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+      html: `
+        <p>Merhaba ${this.escapeHtml(params.name)},</p>
+        <p><strong>Planli toplantinin tarih/saat bilgisi guncellenmistir.</strong></p>
+        <p><strong>Onceki tarih/saat:</strong> ${this.escapeHtml(oldTime)} (TSI)</p>
+        <p><strong>Guncel tarih/saat:</strong> ${this.escapeHtml(newTime)} (TSI)</p>
+        <p><strong>Toplanti baglantisi:</strong> <a href="${params.meetingUrl}">${params.meetingUrl}</a></p>
+        ${
+          noteLine
+            ? `<p><strong>Toplanti Notu:</strong> ${this.escapeHtml(params.note!.trim())}</p>`
+            : ''
+        }
+        <p>Katilim planinizi guncel bilgiye gore duzenlemenizi rica ederiz.</p>
+      `,
+    };
+  }
+
+  private buildWelcomeContent(params: {
+    name: string;
+    kind: 'intern' | 'member';
+  }): EmailContent {
+    if (params.kind === 'intern') {
+      return {
+        subject: 'Aramiza hos geldin',
+        text: [
+          `Merhaba ${params.name},`,
+          '',
+          'Stajyer olarak ekibe hos geldin.',
+          'Mesaj icerigi daha sonra guncellenecek.',
+        ].join('\n'),
+        html: `
+          <p>Merhaba ${this.escapeHtml(params.name)},</p>
+          <p>Stajyer olarak ekibe hos geldin.</p>
+          <p>Mesaj icerigi daha sonra guncellenecek.</p>
+        `,
+      };
+    }
+
+    return {
+      subject: 'Ekibe hos geldin',
+      text: [
+        `Merhaba ${params.name},`,
+        '',
+        'Takim uyesi olarak aramiza hos geldin.',
+        'Mesaj icerigi daha sonra guncellenecek.',
+      ].join('\n'),
+      html: `
+        <p>Merhaba ${this.escapeHtml(params.name)},</p>
+        <p>Takim uyesi olarak aramiza hos geldin.</p>
+        <p>Mesaj icerigi daha sonra guncellenecek.</p>
+      `,
+    };
+  }
+
+  private buildPromotionContent(params: {
+    name: string;
+    kind: 'intern_to_member' | 'member_to_board';
+  }): EmailContent {
+    if (params.kind === 'intern_to_member') {
+      return {
+        subject: 'Yukselme bildirimi',
+        text: [
+          `Merhaba ${params.name},`,
+          '',
+          'Stajyerlikten normal takim uyeligine yukselttin.',
+          'Mesaj icerigi daha sonra guncellenecek.',
+        ].join('\n'),
+        html: `
+          <p>Merhaba ${this.escapeHtml(params.name)},</p>
+          <p>Stajyerlikten normal takim uyeligine yukselttin.</p>
+          <p>Mesaj icerigi daha sonra guncellenecek.</p>
+        `,
+      };
+    }
+
+    return {
+      subject: 'Yukselme bildirimi',
+      text: [
+        `Merhaba ${params.name},`,
+        '',
+        'Normal takim uyeliginden yonetim kuruluna yukselttin.',
+        'Mesaj icerigi daha sonra guncellenecek.',
+      ].join('\n'),
+      html: `
+        <p>Merhaba ${this.escapeHtml(params.name)},</p>
+        <p>Normal takim uyeliginden yonetim kuruluna yukselttin.</p>
+        <p>Mesaj icerigi daha sonra guncellenecek.</p>
+      `,
+    };
+  }
+
   private createTransport() {
     const host = process.env.SMTP_HOST?.trim();
     const port = Number(process.env.SMTP_PORT ?? 587);
@@ -171,6 +329,47 @@ export class PasswordResetMailService {
     note?: string;
   }) {
     const content = this.buildMeetingReminderContent(params);
+    await this.sendEmail({ to: params.to, content });
+  }
+
+  async sendMeetingCanceledEmail(params: {
+    to: string;
+    name: string;
+    meetingUrl: string;
+    scheduledAt: Date;
+    note?: string;
+  }) {
+    const content = this.buildMeetingCanceledContent(params);
+    await this.sendEmail({ to: params.to, content });
+  }
+
+  async sendMeetingUpdatedEmail(params: {
+    to: string;
+    name: string;
+    oldScheduledAt: Date;
+    newScheduledAt: Date;
+    meetingUrl: string;
+    note?: string;
+  }) {
+    const content = this.buildMeetingUpdatedContent(params);
+    await this.sendEmail({ to: params.to, content });
+  }
+
+  async sendWelcomeEmail(params: {
+    to: string;
+    name: string;
+    kind: 'intern' | 'member';
+  }) {
+    const content = this.buildWelcomeContent(params);
+    await this.sendEmail({ to: params.to, content });
+  }
+
+  async sendPromotionEmail(params: {
+    to: string;
+    name: string;
+    kind: 'intern_to_member' | 'member_to_board';
+  }) {
+    const content = this.buildPromotionContent(params);
     await this.sendEmail({ to: params.to, content });
   }
 

@@ -6,6 +6,7 @@ import Link from 'next/link';
 
 type TeamRole = 'MEMBER' | 'BOARD' | 'CAPTAIN';
 type Department = 'SOFTWARE' | 'INDUSTRIAL' | 'MECHANICAL' | 'ELECTRICAL_ELECTRONICS';
+type MeetingTargetMode = 'ALL' | 'SELECTED';
 type TicketStatus = 'TODO' | 'IN_PROGRESS' | 'IN_REVIEW' | 'DONE';
 type TicketPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
@@ -75,6 +76,8 @@ type MeetingInfo = {
   meetingUrl: string;
   note?: string | null;
   includeInterns?: boolean;
+  targetMode?: MeetingTargetMode;
+  targetDepartments?: Department[];
   reminderSentAt?: string | null;
   createdBy: Pick<TeamMember, 'id' | 'name' | 'email'>;
 };
@@ -293,6 +296,10 @@ export default function HomePage() {
   const [meetingUrl, setMeetingUrl] = useState('');
   const [meetingNote, setMeetingNote] = useState('');
   const [meetingIncludeInterns, setMeetingIncludeInterns] = useState(true);
+  const [meetingTargetMode, setMeetingTargetMode] = useState<MeetingTargetMode>('ALL');
+  const [meetingSelectedDepartments, setMeetingSelectedDepartments] = useState<Department[]>([
+    'SOFTWARE',
+  ]);
   const [meetingFieldError, setMeetingFieldError] = useState('');
   const [isSavingMeeting, setIsSavingMeeting] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
@@ -363,6 +370,18 @@ export default function HomePage() {
     (project) => project.key !== 'ULGEN-SYSTEM',
   ).length;
   const activeTeamMembers = teamMembers.filter((member) => member.active);
+  const currentUserIdentityLabel = useMemo(() => {
+    if (!currentUser) return '';
+    if (currentUser.role === 'CAPTAIN') return 'Kaptan';
+
+    const detailed = activeTeamMembers.find((member) => member.id === currentUser.id);
+    const departments =
+      (detailed?.departments ?? [])
+        .map((item) => DEPARTMENT_LABELS[item.department])
+        .filter(Boolean) ?? [];
+    const baseLabel = departments.length > 0 ? departments.join(', ') : 'Departman bilgisi yok';
+    return detailed?.isIntern ? `${baseLabel} | Stajyer` : baseLabel;
+  }, [currentUser, activeTeamMembers]);
   const memberDepartmentsById = useMemo(() => {
     const map = new Map<string, Department[]>();
     activeTeamMembers.forEach((member) => {
@@ -1078,6 +1097,12 @@ export default function HomePage() {
     setMeetingUrl(nextMeeting?.meetingUrl ?? '');
     setMeetingNote(nextMeeting?.note ?? '');
     setMeetingIncludeInterns(nextMeeting?.includeInterns ?? true);
+    setMeetingTargetMode(nextMeeting?.targetMode ?? 'ALL');
+    setMeetingSelectedDepartments(
+      nextMeeting?.targetDepartments && nextMeeting.targetDepartments.length > 0
+        ? nextMeeting.targetDepartments
+        : ['SOFTWARE'],
+    );
   }
 
   useEffect(() => {
@@ -1450,17 +1475,27 @@ export default function HomePage() {
       setMeetingFieldError('Toplanti linki http:// veya https:// ile baslamalidir.');
       return;
     }
+    if (meetingTargetMode === 'SELECTED' && meetingSelectedDepartments.length < 1) {
+      setMeetingFieldError('Secili departman modunda en az bir departman secmelisiniz.');
+      return;
+    }
 
     setIsSavingMeeting(true);
     try {
-      const result = (await apiFetch('/meetings', {
-        method: 'POST',
+      const isUpdating = Boolean(meeting?.id);
+      const result = (await apiFetch(isUpdating ? '/meetings/current' : '/meetings', {
+        method: isUpdating ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           scheduledAt: scheduled.toISOString(),
           meetingUrl: trimmedUrl,
           note: meetingNote.trim() || undefined,
           includeInterns: meetingIncludeInterns,
+          targetMode: meetingTargetMode,
+          targetDepartments:
+            meetingTargetMode === 'SELECTED'
+              ? Array.from(new Set(meetingSelectedDepartments))
+              : undefined,
         }),
       })) as { meeting: MeetingInfo };
       setMeeting(result.meeting);
@@ -1468,12 +1503,79 @@ export default function HomePage() {
       setMeetingUrl(result.meeting.meetingUrl);
       setMeetingNote(result.meeting.note ?? '');
       setMeetingIncludeInterns(result.meeting.includeInterns ?? true);
-      showToast('success', 'Toplanti planlandi.');
+      setMeetingTargetMode(result.meeting.targetMode ?? 'ALL');
+      setMeetingSelectedDepartments(
+        result.meeting.targetDepartments && result.meeting.targetDepartments.length > 0
+          ? result.meeting.targetDepartments
+          : ['SOFTWARE'],
+      );
+      showToast('success', isUpdating ? 'Toplanti guncellendi.' : 'Toplanti planlandi.');
     } catch (error) {
       setMeetingFieldError(error instanceof Error ? error.message : 'Toplanti planlanamadi.');
     } finally {
       setIsSavingMeeting(false);
     }
+  }
+
+  async function cancelMeetingPlan() {
+    if (!isCaptain || !meeting) return;
+    if (isSavingMeeting) return;
+    setMeetingFieldError('');
+    try {
+      setIsSavingMeeting(true);
+      await apiFetch('/meetings/current', { method: 'DELETE' });
+      setMeeting(null);
+      setMeetingScheduledAt('');
+      setMeetingUrl('');
+      setMeetingNote('');
+      setMeetingIncludeInterns(true);
+      setMeetingTargetMode('ALL');
+      setMeetingSelectedDepartments(['SOFTWARE']);
+      showToast('success', 'Toplanti iptal edildi.');
+    } catch (error) {
+      setMeetingFieldError(error instanceof Error ? error.message : 'Toplanti iptal edilemedi.');
+    } finally {
+      setIsSavingMeeting(false);
+    }
+  }
+
+  function adjustMeetingMinutes(delta: number) {
+    const base = meetingScheduledAt ? new Date(meetingScheduledAt) : new Date();
+    if (Number.isNaN(base.getTime())) return;
+    base.setSeconds(0, 0);
+    base.setMinutes(base.getMinutes() + delta);
+    setMeetingScheduledAt(toDatetimeLocalValue(base.toISOString()));
+    setMeetingFieldError('');
+  }
+
+  const canAddMeetingDepartment = useMemo(
+    () => meetingSelectedDepartments.length < (Object.keys(DEPARTMENT_LABELS) as Department[]).length,
+    [meetingSelectedDepartments],
+  );
+
+  function addMeetingDepartmentField() {
+    if (!canAddMeetingDepartment) return;
+    const all = Object.keys(DEPARTMENT_LABELS) as Department[];
+    const existing = new Set(meetingSelectedDepartments);
+    const next = all.find((department) => !existing.has(department));
+    if (!next) return;
+    setMeetingSelectedDepartments((prev) => [...prev, next]);
+    setMeetingFieldError('');
+  }
+
+  function removeMeetingDepartmentField(index: number) {
+    setMeetingSelectedDepartments((prev) => {
+      if (prev.length <= 1) return prev;
+      return prev.filter((_, idx) => idx !== index);
+    });
+    setMeetingFieldError('');
+  }
+
+  function setMeetingDepartmentAt(index: number, department: Department) {
+    setMeetingSelectedDepartments((prev) =>
+      prev.map((value, idx) => (idx === index ? department : value)),
+    );
+    setMeetingFieldError('');
   }
 
   async function createMember(e: FormEvent) {
@@ -1546,7 +1648,42 @@ export default function HomePage() {
       setError((e as Error).message);
     }
   }
+  async function promoteInternToMember(id: string) {
+    if (!isCaptain) return;
+    setError('');
+    try {
+      await apiFetch(`/team-members/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          isIntern: false,
+          role: 'MEMBER',
+        }),
+      });
+      await loadAll();
+      showToast('success', 'Stajyer takim uyeligine yukseltilmistir');
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
 
+  async function promoteMemberToBoard(id: string) {
+    if (!isCaptain) return;
+    setError('');
+    try {
+      await apiFetch(`/team-members/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          role: 'BOARD',
+        }),
+      });
+      await loadAll();
+      showToast('success', 'Uye yonetim kuruluna yukseltilmistir');
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
   function setManualAssigneeAt(index: number, memberId: string) {
     setTicketManualAssigneeIds((prev) =>
       prev.map((value, idx) => (idx === index ? memberId : value)),
@@ -2202,9 +2339,9 @@ export default function HomePage() {
         <div>
           <p className="eyebrow">Ülgen AR-GE Çalışma Alanı</p>
           <h1>Rol Bazlı Görev Yönetimi</h1>
-          <p className="muted">
-            {currentUser.name} ({ROLE_LABELS[currentUser.role]}) ile aktif oturum.
-          </p>
+            <p className="muted">
+            {currentUser.name} ({currentUserIdentityLabel}) ile aktif oturum.
+            </p>
         </div>
         <div className="stats">
           <article className="statCard">
@@ -2408,16 +2545,28 @@ export default function HomePage() {
               transition={{ duration: 0.22, ease: 'easeOut' }}
             >
               <form className="formBlock" onSubmit={saveMeetingPlan}>
-                <h3>Toplanti Planla</h3>
+                <h3>{meeting ? 'Toplantiyi Guncelle' : 'Toplanti Planla'}</h3>
                 <input
                   type="datetime-local"
                   value={meetingScheduledAt}
+                  step={60}
                   onChange={(e) => {
                     setMeetingScheduledAt(e.target.value);
                     setMeetingFieldError('');
                   }}
+                  onWheel={(e) => {
+                    e.currentTarget.blur();
+                  }}
                   required
                 />
+                <div className="submissionBox">
+                  <button type="button" onClick={() => adjustMeetingMinutes(-1)}>
+                    -1 dk
+                  </button>
+                  <button type="button" onClick={() => adjustMeetingMinutes(1)}>
+                    +1 dk
+                  </button>
+                </div>
                 <input
                   placeholder="Toplanti linki (https://...)"
                   value={meetingUrl}
@@ -2435,6 +2584,59 @@ export default function HomePage() {
                     setMeetingFieldError('');
                   }}
                 />
+                <select
+                  value={meetingTargetMode}
+                  onChange={(e) => {
+                    setMeetingTargetMode(e.target.value as MeetingTargetMode);
+                    setMeetingFieldError('');
+                  }}
+                >
+                  <option value="ALL">Tum Departmanlar</option>
+                  <option value="SELECTED">Secili Departmanlar</option>
+                </select>
+                {meetingTargetMode === 'SELECTED' && (
+                  <div className="submissionBox">
+                    {meetingSelectedDepartments.map((department, index) => {
+                      const selectedByOthers = new Set(
+                        meetingSelectedDepartments.filter((x, idx) => idx !== index),
+                      );
+                      const options = (Object.keys(DEPARTMENT_LABELS) as Department[]).filter(
+                        (item) => !selectedByOthers.has(item) || item === department,
+                      );
+                      return (
+                        <div key={`meeting-department-${index}`} className="submissionBox">
+                          <select
+                            value={department}
+                            onChange={(e) =>
+                              setMeetingDepartmentAt(index, e.target.value as Department)
+                            }
+                          >
+                            {options.map((item) => (
+                              <option key={item} value={item}>
+                                {DEPARTMENT_LABELS[item]}
+                              </option>
+                            ))}
+                          </select>
+                          {meetingSelectedDepartments.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => removeMeetingDepartmentField(index)}
+                            >
+                              -
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                    <button
+                      type="button"
+                      onClick={addMeetingDepartmentField}
+                      disabled={!canAddMeetingDepartment}
+                    >
+                      + Departman Ekle
+                    </button>
+                  </div>
+                )}
                 <label className="muted">
                   <input
                     type="checkbox"
@@ -2447,9 +2649,20 @@ export default function HomePage() {
                   Stajyerler toplantiya katilabilir
                 </label>
                 {meetingFieldError && <p className="fieldError">{meetingFieldError}</p>}
-                <button type="submit" disabled={isSavingMeeting}>
-                  {isSavingMeeting ? 'Kaydediliyor...' : 'Toplantiyi Planla'}
-                </button>
+                <div className="archiveActions">
+                  <button type="submit" disabled={isSavingMeeting}>
+                    {isSavingMeeting
+                      ? 'Kaydediliyor...'
+                      : meeting
+                        ? 'Toplantiyi Guncelle'
+                        : 'Toplantiyi Planla'}
+                  </button>
+                  {meeting && (
+                    <button type="button" onClick={cancelMeetingPlan} disabled={isSavingMeeting}>
+                      Toplantiyi Iptal Et
+                    </button>
+                  )}
+                </div>
               </form>
               <p className="muted">
                 Toplanti saatine 15 dakika kala seciminize gore aktif uyelere e-posta
@@ -2723,13 +2936,25 @@ export default function HomePage() {
                         {m.isIntern ? ' | Stajyer' : ''}
                       </div>
                     </div>
-                    {m.role === 'CAPTAIN' || m.id === currentUser?.id ? (
-                      <span className="muted">Kaptan hesabi</span>
-                    ) : (
-                      <button type="button" onClick={() => deactivateMember(m.id)}>
-                        Pasiflestir
-                      </button>
-                    )}
+                    <div className="archiveActions">
+                      {m.isIntern && (
+                        <button type="button" onClick={() => promoteInternToMember(m.id)}>
+                          Takim Uyesine Yukselt
+                        </button>
+                      )}
+                      {!m.isIntern && m.role === 'MEMBER' && (
+                        <button type="button" onClick={() => promoteMemberToBoard(m.id)}>
+                          Kurula Yukselt
+                        </button>
+                      )}
+                      {m.role === 'CAPTAIN' || m.id === currentUser?.id ? (
+                        <span className="muted">Kaptan hesabi</span>
+                      ) : (
+                        <button type="button" onClick={() => deactivateMember(m.id)}>
+                          Pasiflestir
+                        </button>
+                      )}
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -3572,6 +3797,7 @@ export default function HomePage() {
     </main>
   );
 }
+
 
 
 

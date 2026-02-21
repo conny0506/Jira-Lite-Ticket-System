@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Patch, Post } from '@nestjs/common';
 import { CurrentUserId } from '../auth/current-user-id.decorator';
 import { CreateMeetingDto } from './dto/create-meeting.dto';
 import { MeetingsService } from './meetings.service';
@@ -15,5 +15,15 @@ export class MeetingsController {
   @Post()
   create(@CurrentUserId() actorId: string, @Body() dto: CreateMeetingDto) {
     return this.meetingsService.create(actorId, dto);
+  }
+
+  @Patch('current')
+  updateCurrent(@CurrentUserId() actorId: string, @Body() dto: CreateMeetingDto) {
+    return this.meetingsService.updateCurrent(actorId, dto);
+  }
+
+  @Delete('current')
+  cancelCurrent(@CurrentUserId() actorId: string) {
+    return this.meetingsService.cancelCurrent(actorId);
   }
 }

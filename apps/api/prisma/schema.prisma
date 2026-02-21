@@ -35,6 +35,11 @@ enum Department {
   ELECTRICAL_ELECTRONICS
 }
 
+enum MeetingTargetMode {
+  ALL
+  SELECTED
+}
+
 enum TicketReviewAction {
   APPROVED
   REJECTED
@@ -119,15 +124,27 @@ model Meeting {
   meetingUrl     String
   note           String?
   includeInterns Boolean    @default(true)
+  targetMode     MeetingTargetMode @default(ALL)
   createdById    String
   reminderSentAt DateTime?
   canceledAt     DateTime?
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
   createdBy      TeamMember @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  departments    MeetingDepartment[]
 
   @@index([scheduledAt, canceledAt])
   @@index([reminderSentAt])
+}
+
+model MeetingDepartment {
+  meetingId   String
+  department  Department
+  assignedAt  DateTime @default(now())
+  meeting     Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@id([meetingId, department])
+  @@index([department])
 }
 
 model TicketAssignment {

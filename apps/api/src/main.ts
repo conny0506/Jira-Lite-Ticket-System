@@ -111,8 +111,8 @@ async function bootstrap() {
     where: { role: 'CAPTAIN', active: true },
   });
   if (hasCaptain === 0) {
-    const email = process.env.BOOTSTRAP_CAPTAIN_EMAIL ?? 'captain@ulgen.local';
-    const password = process.env.BOOTSTRAP_CAPTAIN_PASSWORD ?? '1234';
+    const email = process.env.BOOTSTRAP_CAPTAIN_EMAIL ?? 'ecceem.3566@gmail.com';
+    const password = process.env.BOOTSTRAP_CAPTAIN_PASSWORD ?? '123456';
     await prisma.teamMember.upsert({
       where: { email: email.toLowerCase() },
       update: {

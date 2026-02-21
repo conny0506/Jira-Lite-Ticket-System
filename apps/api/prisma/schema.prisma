@@ -27,6 +27,13 @@ enum TeamRole {
   CAPTAIN
 }
 
+enum Department {
+  SOFTWARE
+  INDUSTRIAL
+  MECHANICAL
+  ELECTRICAL_ELECTRONICS
+}
+
 enum TicketReviewAction {
   APPROVED
   REJECTED
@@ -78,6 +85,7 @@ model TeamMember {
   lastLoginAt      DateTime?
   lastLoginIp      String?
   role             TeamRole     @default(MEMBER)
+  isIntern         Boolean      @default(false)
   active           Boolean      @default(true)
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
@@ -89,8 +97,19 @@ model TeamMember {
   ticketReviews    TicketReview[]
   loginAudits      LoginAudit[]
   meetingsCreated  Meeting[]
+  departments      TeamMemberDepartment[]
 
   @@index([passwordResetTokenHash])
+}
+
+model TeamMemberDepartment {
+  memberId    String
+  department  Department
+  assignedAt  DateTime   @default(now())
+  member      TeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@id([memberId, department])
+  @@index([department])
 }
 
 model Meeting {

@@ -3,7 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { TeamRole } from '@prisma/client';
+import { Department, TeamRole } from '@prisma/client';
 import { AuthService } from '../auth/auth.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTeamMemberDto } from './dto/create-team-member.dto';
@@ -29,7 +29,12 @@ export class TeamMembersService {
         name: true,
         email: true,
         role: true,
+        isIntern: true,
         active: true,
+        departments: {
+          select: { department: true },
+          orderBy: { department: 'asc' },
+        },
       },
     });
   }
@@ -37,6 +42,10 @@ export class TeamMembersService {
   async create(actorId: string, dto: CreateTeamMemberDto) {
     await this.assertCaptain(actorId);
     await this.validateRoleCapacity(dto.role ?? TeamRole.MEMBER);
+    const departments = this.normalizeDepartments(
+      dto.primaryDepartment,
+      dto.secondaryDepartment,
+    );
     const passwordHash = await this.authService.hashPassword(dto.password);
     return this.prisma.teamMember.create({
       data: {
@@ -44,13 +53,24 @@ export class TeamMembersService {
         email: dto.email.toLowerCase().trim(),
         passwordHash,
         role: dto.role ?? TeamRole.MEMBER,
+        isIntern: dto.isIntern ?? false,
+        departments: {
+          createMany: {
+            data: departments.map((department) => ({ department })),
+          },
+        },
       },
       select: {
         id: true,
         name: true,
         email: true,
         role: true,
+        isIntern: true,
         active: true,
+        departments: {
+          select: { department: true },
+          orderBy: { department: 'asc' },
+        },
       },
     });
   }
@@ -71,6 +91,10 @@ export class TeamMembersService {
     const passwordHash = dto.password
       ? await this.authService.hashPassword(dto.password)
       : undefined;
+    const nextDepartments =
+      dto.primaryDepartment || dto.secondaryDepartment
+        ? this.normalizeDepartments(dto.primaryDepartment, dto.secondaryDepartment)
+        : null;
 
     return this.prisma.teamMember.update({
       where: { id },
@@ -79,25 +103,48 @@ export class TeamMembersService {
         email: dto.email?.toLowerCase().trim(),
         role: dto.role,
         active: dto.active,
+        isIntern: dto.isIntern,
         passwordHash,
+        ...(nextDepartments
+          ? {
+              departments: {
+                deleteMany: {},
+                createMany: {
+                  data: nextDepartments.map((department) => ({ department })),
+                },
+              },
+            }
+          : {}),
       },
       select: {
         id: true,
         name: true,
         email: true,
         role: true,
+        isIntern: true,
         active: true,
+        departments: {
+          select: { department: true },
+          orderBy: { department: 'asc' },
+        },
       },
     });
   }
 
   async deactivate(actorId: string, id: string) {
     await this.assertCaptain(actorId);
+    if (actorId === id) {
+      throw new BadRequestException('Kaptan kendi hesabini pasiflestiremez');
+    }
+
     const member = await this.prisma.teamMember.findUnique({
       where: { id },
-      select: { id: true },
+      select: { id: true, role: true },
     });
     if (!member) throw new NotFoundException('Takım üyesi bulunamadı');
+    if (member.role === TeamRole.CAPTAIN) {
+      throw new BadRequestException('Aktif kaptan pasiflestirilemez');
+    }
 
     return this.prisma.teamMember.update({
       where: { id },
@@ -107,7 +154,12 @@ export class TeamMembersService {
         name: true,
         email: true,
         role: true,
+        isIntern: true,
         active: true,
+        departments: {
+          select: { department: true },
+          orderBy: { department: 'asc' },
+        },
       },
     });
   }
@@ -148,4 +200,20 @@ export class TeamMembersService {
       }
     }
   }
+
+  private normalizeDepartments(primary?: Department, secondary?: Department) {
+    if (!primary) {
+      throw new BadRequestException('Birincil departman zorunludur');
+    }
+    const values = [primary, secondary].filter(Boolean) as Department[];
+    const unique = [...new Set(values)];
+    if (unique.length === 0) {
+      throw new BadRequestException('En az bir departman secilmelidir');
+    }
+    if (unique.length > 2) {
+      throw new BadRequestException('En fazla iki departman secilebilir');
+    }
+    return unique;
+  }
 }
+

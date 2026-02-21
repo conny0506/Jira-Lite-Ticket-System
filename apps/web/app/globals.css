@@ -317,12 +317,16 @@ body::before {
 .loginWideImage {
   width: min(1120px, 92vw);
   margin: 16px auto 0;
-  min-height: min(92vw, 520px);
   border-radius: 18px;
   border: 1px solid var(--line);
-  background:
-    linear-gradient(120deg, rgba(35, 164, 255, 0.18), rgba(0, 209, 182, 0.16)),
-    url('/assets/illustrations/login-wide-banner.jpg') center / contain no-repeat;
+  overflow: hidden;
+  line-height: 0;
+}
+
+.loginWideImage img {
+  display: block;
+  width: 100%;
+  height: auto;
 }
 
 .introShell {
@@ -1344,10 +1348,6 @@ select[multiple] {
 @media (max-width: 640px) {
   .app {
     width: min(1400px, 96vw);
-  }
-
-  .loginWideImage {
-    min-height: min(92vw, 360px);
   }
 
   .stats {

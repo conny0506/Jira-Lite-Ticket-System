@@ -1926,6 +1926,9 @@ export default function HomePage() {
             alt="Giris alt gorseli"
           />
         </section>
+        <p className="loginQuote">
+          Yukselmek cesaret ister, havada kalmak disiplin.
+        </p>
         <button
           type="button"
           className="bugFab"

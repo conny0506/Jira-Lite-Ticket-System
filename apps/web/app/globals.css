@@ -310,14 +310,14 @@ body::before {
 
 .loginPanel {
   max-width: 520px;
-  margin: 40px auto 0;
+  margin: 20px auto 0;
   padding: 16px;
 }
 
 .loginWideImage {
-  width: min(860px, 90vw);
-  max-height: 170px;
-  margin: 10px auto 0;
+  width: min(260px, 48vw);
+  aspect-ratio: 1 / 1;
+  margin: 8px auto 0;
   border-radius: 18px;
   border: 1px solid var(--line);
   overflow: hidden;
@@ -329,9 +329,8 @@ body::before {
 
 .loginWideImage img {
   display: block;
-  width: auto;
+  width: 100%;
   height: 100%;
-  max-width: 100%;
   object-fit: contain;
 }
 
@@ -1357,8 +1356,7 @@ select[multiple] {
   }
 
   .loginWideImage {
-    max-height: 120px;
-    width: min(620px, 92vw);
+    width: min(190px, 55vw);
   }
 
   .stats {

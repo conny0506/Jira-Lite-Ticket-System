@@ -6,6 +6,7 @@ import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { AuthService } from './auth/auth.service';
 import { PrismaService } from './prisma/prisma.service';
+import { DEFAULT_MOTIVATIONAL_QUOTES } from './quotes/default-quotes';
 
 function mapValidationError(error: ValidationError): string[] {
   const constraints = error.constraints ?? {};
@@ -150,6 +151,19 @@ async function bootstrap() {
         'Takım görevleri ve teslimleri için sistem tarafından yönetilen varsayılan proje',
     },
   });
+
+  const quoteCount = await prisma.motivationalQuote.count();
+  if (quoteCount === 0) {
+    await prisma.motivationalQuote.createMany({
+      data: DEFAULT_MOTIVATIONAL_QUOTES.map((text, index) => ({
+        text,
+        sortOrder: index + 1,
+      })),
+      skipDuplicates: true,
+    });
+    // eslint-disable-next-line no-console
+    console.log(`Motivasyon sozleri yuklendi: ${DEFAULT_MOTIVATIONAL_QUOTES.length}`);
+  }
 
   const port = Number(process.env.API_PORT ?? 4000);
   await app.listen(port);

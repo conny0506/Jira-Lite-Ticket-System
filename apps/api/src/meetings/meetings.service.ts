@@ -17,6 +17,7 @@ type MeetingRow = {
   scheduledAt: Date;
   meetingUrl: string;
   note: string | null;
+  includeInterns: boolean;
   reminderSentAt: Date | null;
   createdById: string;
   createdByName: string;
@@ -41,6 +42,7 @@ export class MeetingsService implements OnModuleInit, OnModuleDestroy {
       scheduledAt: row.scheduledAt.toISOString(),
       meetingUrl: row.meetingUrl,
       note: row.note,
+      includeInterns: row.includeInterns,
       reminderSentAt: row.reminderSentAt ? row.reminderSentAt.toISOString() : null,
       createdBy: {
         id: row.createdById,
@@ -58,6 +60,7 @@ export class MeetingsService implements OnModuleInit, OnModuleDestroy {
         m."scheduledAt",
         m."meetingUrl",
         m."note",
+        m."includeInterns",
         m."reminderSentAt",
         m."createdById",
         t."name" AS "createdByName",
@@ -94,6 +97,7 @@ export class MeetingsService implements OnModuleInit, OnModuleDestroy {
     if (!/^https?:\/\//i.test(meetingUrl)) {
       throw new BadRequestException('Toplanti linki http:// veya https:// ile baslamalidir');
     }
+    const includeInterns = dto.includeInterns ?? true;
 
     const now = new Date();
     const meetingId = randomUUID();
@@ -111,12 +115,13 @@ export class MeetingsService implements OnModuleInit, OnModuleDestroy {
         scheduledAt: Date;
         meetingUrl: string;
         note: string | null;
+        includeInterns: boolean;
         reminderSentAt: Date | null;
       }>
     >`
-      INSERT INTO "Meeting" ("id", "scheduledAt", "meetingUrl", "note", "createdById", "createdAt", "updatedAt")
-      VALUES (${meetingId}, ${scheduledAt}, ${meetingUrl}, ${dto.note?.trim() || null}, ${actor.id}, NOW(), NOW())
-      RETURNING "id", "scheduledAt", "meetingUrl", "note", "reminderSentAt"
+      INSERT INTO "Meeting" ("id", "scheduledAt", "meetingUrl", "note", "includeInterns", "createdById", "createdAt", "updatedAt")
+      VALUES (${meetingId}, ${scheduledAt}, ${meetingUrl}, ${dto.note?.trim() || null}, ${includeInterns}, ${actor.id}, NOW(), NOW())
+      RETURNING "id", "scheduledAt", "meetingUrl", "note", "includeInterns", "reminderSentAt"
     `;
 
     const inserted = insertedRows[0];
@@ -161,9 +166,15 @@ export class MeetingsService implements OnModuleInit, OnModuleDestroy {
       const to = new Date(now.getTime() + 16 * 60 * 1000);
 
       const meetings = await this.prisma.$queryRaw<
-        Array<{ id: string; scheduledAt: Date; meetingUrl: string; note: string | null }>
+        Array<{
+          id: string;
+          scheduledAt: Date;
+          meetingUrl: string;
+          note: string | null;
+          includeInterns: boolean;
+        }>
       >`
-        SELECT "id", "scheduledAt", "meetingUrl", "note"
+        SELECT "id", "scheduledAt", "meetingUrl", "note", "includeInterns"
         FROM "Meeting"
         WHERE "canceledAt" IS NULL
           AND "reminderSentAt" IS NULL
@@ -173,18 +184,19 @@ export class MeetingsService implements OnModuleInit, OnModuleDestroy {
 
       if (meetings.length === 0) return;
 
-      const recipients = await this.prisma.teamMember.findMany({
-        where: {
-          active: true,
-          notificationEmailEnabled: true,
-        },
-        select: {
-          name: true,
-          email: true,
-        },
-      });
-
       for (const meeting of meetings) {
+        const recipients = await this.prisma.teamMember.findMany({
+          where: {
+            active: true,
+            notificationEmailEnabled: true,
+            ...(meeting.includeInterns ? {} : { isIntern: false }),
+          },
+          select: {
+            name: true,
+            email: true,
+          },
+        });
+
         for (const user of recipients) {
           try {
             await this.mailService.sendMeetingReminderEmail({

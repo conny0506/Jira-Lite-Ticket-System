@@ -1,4 +1,4 @@
-import { TeamRole } from '@prisma/client';
+import { Department, TeamRole } from '@prisma/client';
 import {
   IsBoolean,
   IsEmail,
@@ -30,4 +30,16 @@ export class UpdateTeamMemberDto {
   @IsString()
   @Length(4, 100)
   password?: string;
+
+  @IsOptional()
+  @IsEnum(Department)
+  primaryDepartment?: Department;
+
+  @IsOptional()
+  @IsEnum(Department)
+  secondaryDepartment?: Department;
+
+  @IsOptional()
+  @IsBoolean()
+  isIntern?: boolean;
 }

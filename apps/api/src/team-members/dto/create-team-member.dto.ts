@@ -1,5 +1,12 @@
-import { TeamRole } from '@prisma/client';
-import { IsEmail, IsEnum, IsOptional, IsString, Length } from 'class-validator';
+import { Department, TeamRole } from '@prisma/client';
+import {
+  IsBoolean,
+  IsEmail,
+  IsEnum,
+  IsOptional,
+  IsString,
+  Length,
+} from 'class-validator';
 
 export class CreateTeamMemberDto {
   @IsString()
@@ -16,4 +23,15 @@ export class CreateTeamMemberDto {
   @IsString()
   @Length(4, 100)
   password!: string;
+
+  @IsEnum(Department)
+  primaryDepartment!: Department;
+
+  @IsOptional()
+  @IsEnum(Department)
+  secondaryDepartment?: Department;
+
+  @IsOptional()
+  @IsBoolean()
+  isIntern?: boolean;
 }

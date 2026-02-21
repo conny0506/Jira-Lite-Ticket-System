@@ -5,6 +5,7 @@ import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import Link from 'next/link';
 
 type TeamRole = 'MEMBER' | 'BOARD' | 'CAPTAIN';
+type Department = 'SOFTWARE' | 'INDUSTRIAL' | 'MECHANICAL' | 'ELECTRICAL_ELECTRONICS';
 type TicketStatus = 'TODO' | 'IN_PROGRESS' | 'IN_REVIEW' | 'DONE';
 type TicketPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
@@ -14,6 +15,8 @@ type TeamMember = {
   email: string;
   role: TeamRole;
   active: boolean;
+  isIntern?: boolean;
+  departments?: Array<{ department: Department }>;
 };
 
 type Project = {
@@ -82,7 +85,7 @@ type CaptainTab =
   | 'team'
   | 'tasks'
   | 'submissions';
-type MemberTab = 'home' | 'my_tasks' | 'my_submissions' | 'timeline';
+type MemberTab = 'home' | 'my_tasks' | 'my_submissions' | 'timeline' | 'all_tasks';
 type ToastItem = { id: number; type: 'success' | 'error'; message: string };
 type NotificationItem = ToastItem & { createdAt: string };
 type IntroStage = 'none' | 'terminal' | 'quote';
@@ -115,6 +118,13 @@ const PRIORITY_LABELS: Record<TicketPriority, string> = {
   CRITICAL: 'Kritik',
 };
 
+const DEPARTMENT_LABELS: Record<Department, string> = {
+  SOFTWARE: 'Yazilim',
+  INDUSTRIAL: 'Endustri',
+  MECHANICAL: 'Mekanik',
+  ELECTRICAL_ELECTRONICS: 'Elektrik ve Elektronik',
+};
+
 const SUCCESS_QUOTES = [
   'Disiplinli ilerleme, günlük motivasyondan daha güçlüdür.',
   'Küçük ama sürekli adımlar, büyük sonuçlar üretir.',
@@ -128,6 +138,10 @@ type TicketCreateDraft = {
   description: string;
   priority: TicketPriority;
   dueAt: string;
+  assignmentMode: 'MANUAL' | 'DEPARTMENT';
+  targetDepartment: Department;
+  departmentSelectionMode: 'ALL' | 'SELECTED';
+  departmentMemberIds: string[];
   primaryAssigneeId: string;
   secondaryAssigneeId: string;
   attachmentFile: File | null;
@@ -154,14 +168,20 @@ function validateTicketCreateDraft(draft: TicketCreateDraft) {
   if (draft.title.length < 3) {
     return 'Gorev basligi en az 3 karakter olmali';
   }
-  if (!draft.primaryAssigneeId) {
-    return 'En az 1 atanan secmelisin';
-  }
-  if (
-    draft.secondaryAssigneeId &&
-    draft.secondaryAssigneeId === draft.primaryAssigneeId
-  ) {
-    return 'Ikinci atanan, birinci atanan ile ayni olamaz';
+  if (draft.assignmentMode === 'MANUAL') {
+    if (!draft.primaryAssigneeId) {
+      return 'En az 1 atanan secmelisin';
+    }
+    if (
+      draft.secondaryAssigneeId &&
+      draft.secondaryAssigneeId === draft.primaryAssigneeId
+    ) {
+      return 'Ikinci atanan, birinci atanan ile ayni olamaz';
+    }
+  } else if (draft.departmentSelectionMode === 'SELECTED') {
+    if (draft.departmentMemberIds.length < 1) {
+      return 'Departmandan en az 1 uye secmelisin';
+    }
   }
   return validateOptionalUploadFile(draft.attachmentFile);
 }
@@ -172,9 +192,18 @@ function buildCreateTicketFormData(draft: TicketCreateDraft) {
   form.set('description', draft.description);
   form.set('priority', draft.priority);
   form.set('dueAt', new Date(draft.dueAt).toISOString());
-  form.append('assigneeIds', draft.primaryAssigneeId);
-  if (draft.secondaryAssigneeId) {
-    form.append('assigneeIds', draft.secondaryAssigneeId);
+  form.set('assignmentMode', draft.assignmentMode);
+  if (draft.assignmentMode === 'MANUAL') {
+    form.append('assigneeIds', draft.primaryAssigneeId);
+    if (draft.secondaryAssigneeId) {
+      form.append('assigneeIds', draft.secondaryAssigneeId);
+    }
+  } else {
+    form.set('targetDepartment', draft.targetDepartment);
+    form.set('departmentSelectionMode', draft.departmentSelectionMode);
+    if (draft.departmentSelectionMode === 'SELECTED') {
+      draft.departmentMemberIds.forEach((id) => form.append('assigneeIds', id));
+    }
   }
   if (draft.attachmentNote.trim()) {
     form.set('attachmentNote', draft.attachmentNote.trim());
@@ -227,11 +256,25 @@ export default function HomePage() {
   const [memberEmail, setMemberEmail] = useState('');
   const [memberPassword, setMemberPassword] = useState('');
   const [memberRole, setMemberRole] = useState<TeamRole>('MEMBER');
+  const [memberPrimaryDepartment, setMemberPrimaryDepartment] =
+    useState<Department>('SOFTWARE');
+  const [memberSecondaryDepartment, setMemberSecondaryDepartment] =
+    useState<'' | Department>('');
+  const [memberIsIntern, setMemberIsIntern] = useState(false);
 
   const [ticketTitle, setTicketTitle] = useState('');
   const [ticketDesc, setTicketDesc] = useState('');
   const [ticketPriority, setTicketPriority] = useState<TicketPriority>('MEDIUM');
   const [ticketDueAt, setTicketDueAt] = useState('');
+  const [ticketAssignmentMode, setTicketAssignmentMode] =
+    useState<'MANUAL' | 'DEPARTMENT'>('MANUAL');
+  const [ticketTargetDepartment, setTicketTargetDepartment] =
+    useState<Department>('SOFTWARE');
+  const [ticketDepartmentSelectionMode, setTicketDepartmentSelectionMode] =
+    useState<'ALL' | 'SELECTED'>('ALL');
+  const [ticketDepartmentMemberIds, setTicketDepartmentMemberIds] = useState<string[]>([]);
+  const [ticketManualDepartmentFilter, setTicketManualDepartmentFilter] =
+    useState<'ALL' | Department>('ALL');
   const [ticketPrimaryAssigneeId, setTicketPrimaryAssigneeId] = useState('');
   const [ticketSecondaryAssigneeId, setTicketSecondaryAssigneeId] = useState('');
   const [ticketAttachmentFile, setTicketAttachmentFile] = useState<File | null>(null);
@@ -252,6 +295,7 @@ export default function HomePage() {
   const [taskLayout, setTaskLayout] = useState<'board' | 'list'>('board');
   const [teamSearch, setTeamSearch] = useState('');
   const [teamRoleFilter, setTeamRoleFilter] = useState<'ALL' | TeamRole>('ALL');
+  const [teamDepartmentFilter, setTeamDepartmentFilter] = useState<'ALL' | Department>('ALL');
   const [taskSearch, setTaskSearch] = useState('');
   const [taskStatusFilter, setTaskStatusFilter] =
     useState<'ALL' | TicketStatus>('ALL');
@@ -272,6 +316,11 @@ export default function HomePage() {
   const [reviewingTicketId, setReviewingTicketId] = useState<string | null>(null);
   const [memberTaskSearch, setMemberTaskSearch] = useState('');
   const [memberSubmissionSearch, setMemberSubmissionSearch] = useState('');
+  const [boardAllTaskSearch, setBoardAllTaskSearch] = useState('');
+  const [boardAllTaskStatusFilter, setBoardAllTaskStatusFilter] =
+    useState<'ALL' | TicketStatus>('ALL');
+  const [boardAllTaskDepartmentFilter, setBoardAllTaskDepartmentFilter] =
+    useState<'ALL' | Department>('ALL');
   const [toastQueue, setToastQueue] = useState<ToastItem[]>([]);
   const [notificationHistory, setNotificationHistory] = useState<NotificationItem[]>([]);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
@@ -303,13 +352,76 @@ export default function HomePage() {
     (project) => project.key !== 'ULGEN-SYSTEM',
   ).length;
   const activeTeamMembers = teamMembers.filter((member) => member.active);
+  const memberDepartmentsById = useMemo(() => {
+    const map = new Map<string, Department[]>();
+    activeTeamMembers.forEach((member) => {
+      map.set(
+        member.id,
+        (member.departments ?? []).map((item) => item.department),
+      );
+    });
+    return map;
+  }, [activeTeamMembers]);
   const filteredTeamMembers = activeTeamMembers.filter((m) => {
     const bySearch =
       m.name.toLowerCase().includes(teamSearch.toLowerCase()) ||
       m.email.toLowerCase().includes(teamSearch.toLowerCase());
     const byRole = teamRoleFilter === 'ALL' || m.role === teamRoleFilter;
-    return bySearch && byRole;
+    const byDepartment =
+      teamDepartmentFilter === 'ALL' ||
+      (m.departments ?? []).some((item) => item.department === teamDepartmentFilter);
+    return bySearch && byRole && byDepartment;
   });
+  const activeMembersInTargetDepartment = useMemo(
+    () =>
+      activeTeamMembers.filter((member) =>
+        (member.departments ?? []).some((x) => x.department === ticketTargetDepartment),
+      ),
+    [activeTeamMembers, ticketTargetDepartment],
+  );
+
+  useEffect(() => {
+    if (ticketAssignmentMode !== 'DEPARTMENT') {
+      setTicketDepartmentMemberIds([]);
+      return;
+    }
+    setTicketDepartmentMemberIds((prev) =>
+      prev.filter((id) => activeMembersInTargetDepartment.some((member) => member.id === id)),
+    );
+  }, [ticketAssignmentMode, activeMembersInTargetDepartment]);
+
+  const manualAssignableMembers = useMemo(
+    () =>
+      activeTeamMembers.filter(
+        (member) =>
+          ticketManualDepartmentFilter === 'ALL' ||
+          (member.departments ?? []).some(
+            (item) => item.department === ticketManualDepartmentFilter,
+          ),
+      ),
+    [activeTeamMembers, ticketManualDepartmentFilter],
+  );
+
+  useEffect(() => {
+    if (ticketAssignmentMode !== 'MANUAL') return;
+    if (
+      ticketPrimaryAssigneeId &&
+      !manualAssignableMembers.some((member) => member.id === ticketPrimaryAssigneeId)
+    ) {
+      setTicketPrimaryAssigneeId('');
+    }
+    if (
+      ticketSecondaryAssigneeId &&
+      !manualAssignableMembers.some((member) => member.id === ticketSecondaryAssigneeId)
+    ) {
+      setTicketSecondaryAssigneeId('');
+    }
+  }, [
+    ticketAssignmentMode,
+    manualAssignableMembers,
+    ticketPrimaryAssigneeId,
+    ticketSecondaryAssigneeId,
+  ]);
 
   const filteredSelectedProjectTickets = tickets.filter((t) => {
     const search = taskSearch.trim().toLowerCase();
@@ -392,6 +504,34 @@ export default function HomePage() {
       );
   }, [allSubmissions, currentUser, memberSubmissionSearch]);
 
+  const boardAllTickets = useMemo(() => {
+    const q = boardAllTaskSearch.trim().toLowerCase();
+    return tickets.filter((ticket) => {
+      const byStatus =
+        boardAllTaskStatusFilter === 'ALL' || ticket.status === boardAllTaskStatusFilter;
+      const byDepartment =
+        boardAllTaskDepartmentFilter === 'ALL' ||
+        ticket.assignees.some((assignment) =>
+          (memberDepartmentsById.get(assignment.member.id) ?? []).includes(
+            boardAllTaskDepartmentFilter,
+          ),
+        );
+      if (!byStatus) return false;
+      if (!byDepartment) return false;
+      if (!q) return true;
+      return (
+        ticket.title.toLowerCase().includes(q) ||
+        (ticket.description ?? '').toLowerCase().includes(q)
+      );
+    });
+  }, [
+    tickets,
+    boardAllTaskSearch,
+    boardAllTaskStatusFilter,
+    boardAllTaskDepartmentFilter,
+    memberDepartmentsById,
+  ]);
+
   const todayStart = useMemo(() => {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
@@ -463,6 +603,38 @@ export default function HomePage() {
         .slice(0, 5),
     [tickets],
   );
+
+  const departmentOverviewStats = useMemo(() => {
+    const nowMs = Date.now();
+    return (Object.keys(DEPARTMENT_LABELS) as Department[]).map((department) => {
+      const memberIds = new Set(
+        activeTeamMembers
+          .filter((member) =>
+            (member.departments ?? []).some((item) => item.department === department),
+          )
+          .map((member) => member.id),
+      );
+      const relatedTickets = tickets.filter((ticket) =>
+        ticket.assignees.some((assignment) => memberIds.has(assignment.member.id)),
+      );
+      const openCount = relatedTickets.filter((ticket) => ticket.status !== 'DONE').length;
+      const lateCount = relatedTickets.filter((ticket) => {
+        if (ticket.status === 'DONE' || !ticket.dueAt) return false;
+        const dueMs = new Date(ticket.dueAt).getTime();
+        return Number.isFinite(dueMs) && dueMs < nowMs;
+      }).length;
+      const criticalCount = relatedTickets.filter(
+        (ticket) => ticket.status !== 'DONE' && ticket.priority === 'CRITICAL',
+      ).length;
+      return {
+        department,
+        memberCount: memberIds.size,
+        openCount,
+        lateCount,
+        criticalCount,
+      };
+    });
+  }, [activeTeamMembers, tickets]);
 
   const filteredNotificationHistory = useMemo(() => {
     if (notificationFilter === 'ALL') return notificationHistory;
@@ -876,15 +1048,23 @@ export default function HomePage() {
           memberTab?: MemberTab;
           taskLayout?: 'board' | 'list';
           teamRoleFilter?: 'ALL' | TeamRole;
+          teamDepartmentFilter?: 'ALL' | Department;
           taskStatusFilter?: 'ALL' | TicketStatus;
           taskPriorityFilter?: 'ALL' | TicketPriority;
+          boardAllTaskDepartmentFilter?: 'ALL' | Department;
         };
         if (parsed.captainTab) setCaptainTab(parsed.captainTab);
         if (parsed.memberTab) setMemberTab(parsed.memberTab);
         if (parsed.taskLayout) setTaskLayout(parsed.taskLayout);
         if (parsed.teamRoleFilter) setTeamRoleFilter(parsed.teamRoleFilter);
+        if (parsed.teamDepartmentFilter) {
+          setTeamDepartmentFilter(parsed.teamDepartmentFilter);
+        }
         if (parsed.taskStatusFilter) setTaskStatusFilter(parsed.taskStatusFilter);
         if (parsed.taskPriorityFilter) setTaskPriorityFilter(parsed.taskPriorityFilter);
+        if (parsed.boardAllTaskDepartmentFilter) {
+          setBoardAllTaskDepartmentFilter(parsed.boardAllTaskDepartmentFilter);
+        }
       } catch {}
     }
     if (!cached) {
@@ -909,11 +1089,13 @@ export default function HomePage() {
     if (currentUser.role === 'CAPTAIN') {
       setMemberTab('home');
       setTeamRoleFilter('ALL');
+      setTeamDepartmentFilter('ALL');
       setCaptainTab('home');
       return;
     }
     if (currentUser.role === 'BOARD') {
       setMemberTab('home');
+      setBoardAllTaskDepartmentFilter('ALL');
     }
     if (currentUser.role === 'MEMBER') {
       setMemberTab('home');
@@ -1015,8 +1197,10 @@ export default function HomePage() {
         memberTab,
         taskLayout,
         teamRoleFilter,
+        teamDepartmentFilter,
         taskStatusFilter,
         taskPriorityFilter,
+        boardAllTaskDepartmentFilter,
       }),
     );
   }, [
@@ -1024,8 +1208,10 @@ export default function HomePage() {
     memberTab,
     taskLayout,
     teamRoleFilter,
+    teamDepartmentFilter,
     taskStatusFilter,
     taskPriorityFilter,
+    boardAllTaskDepartmentFilter,
   ]);
 
   useEffect(() => {
@@ -1214,6 +1400,13 @@ export default function HomePage() {
       setMemberFieldError('Sifre en az 4 karakter olmali');
       return;
     }
+    if (
+      memberSecondaryDepartment &&
+      memberSecondaryDepartment === memberPrimaryDepartment
+    ) {
+      setMemberFieldError('Ikinci departman birinci departmanla ayni olamaz');
+      return;
+    }
     try {
       setIsCreatingMember(true);
       await apiFetch('/team-members', {
@@ -1224,12 +1417,18 @@ export default function HomePage() {
           email,
           password,
           role: memberRole,
+          primaryDepartment: memberPrimaryDepartment,
+          secondaryDepartment: memberSecondaryDepartment || undefined,
+          isIntern: memberIsIntern,
         }),
       });
       setMemberName('');
       setMemberEmail('');
       setMemberPassword('');
       setMemberRole('MEMBER');
+      setMemberPrimaryDepartment('SOFTWARE');
+      setMemberSecondaryDepartment('');
+      setMemberIsIntern(false);
       await loadAll();
       showToast('success', 'Üye eklendi');
     } catch (e) {
@@ -1262,6 +1461,10 @@ export default function HomePage() {
       description: ticketDesc || '',
       priority: ticketPriority,
       dueAt: ticketDueAt,
+      assignmentMode: ticketAssignmentMode,
+      targetDepartment: ticketTargetDepartment,
+      departmentSelectionMode: ticketDepartmentSelectionMode,
+      departmentMemberIds: ticketDepartmentMemberIds,
       primaryAssigneeId: ticketPrimaryAssigneeId,
       secondaryAssigneeId: ticketSecondaryAssigneeId,
       attachmentFile: ticketAttachmentFile,
@@ -1283,6 +1486,10 @@ export default function HomePage() {
       setTicketDesc('');
       setTicketPriority('MEDIUM');
       setTicketDueAt('');
+      setTicketAssignmentMode('MANUAL');
+      setTicketTargetDepartment('SOFTWARE');
+      setTicketDepartmentSelectionMode('ALL');
+      setTicketDepartmentMemberIds([]);
       setTicketPrimaryAssigneeId('');
       setTicketSecondaryAssigneeId('');
       setTicketAttachmentFile(null);
@@ -1294,6 +1501,15 @@ export default function HomePage() {
     } finally {
       setIsCreatingTicket(false);
     }
+  }
+
+  function focusDepartmentInTasks(department: Department) {
+    setCaptainTab('tasks');
+    setTicketAssignmentMode('DEPARTMENT');
+    setTicketTargetDepartment(department);
+    setTicketDepartmentSelectionMode('ALL');
+    setTicketDepartmentMemberIds([]);
+    setTicketManualDepartmentFilter(department);
   }
 
   async function updateTicketAssignees(ticket: Ticket, assigneeIds: string[]) {
@@ -1674,9 +1890,6 @@ export default function HomePage() {
         <section className="panel loginPanel">
           <h1>Ülgen AR-GE Giriş</h1>
           <p className="muted">Üyeler e-posta ve şifre ile giriş yapar.</p>
-          <p className="muted">
-            İlk kurulum kaptan: captain@ulgen.local / 1234
-          </p>
           {error && <p className="errorBox">{error}</p>}
           <form onSubmit={onLogin} className="formBlock">
             <input
@@ -1707,7 +1920,12 @@ export default function HomePage() {
             Sifremi unuttum
           </Link>
         </section>
-        <section className="loginWideImage" aria-label="Giris alt gorseli" />
+        <section className="loginWideImage" aria-label="Giris alt gorseli">
+          <img
+            src="/assets/illustrations/login-wide-banner.jpg"
+            alt="Giris alt gorseli"
+          />
+        </section>
         <button
           type="button"
           className="bugFab"
@@ -1997,6 +2215,9 @@ export default function HomePage() {
                 </button>
                 <button type="button" className={memberTab === 'my_submissions' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('my_submissions')}><span>Teslimlerim</span>{memberTab === 'my_submissions' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
                 <button type="button" className={memberTab === 'timeline' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('timeline')}><span>Akis</span>{memberTab === 'timeline' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                {isBoard && (
+                  <button type="button" className={memberTab === 'all_tasks' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('all_tasks')}><span>Tum Gorevler</span>{memberTab === 'all_tasks' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                )}
               </div>
             </LayoutGroup>
           )}
@@ -2131,6 +2352,26 @@ export default function HomePage() {
                 </p>
               </article>
             </div>
+            <div className="cardGrid">
+              {departmentOverviewStats.map((item) => (
+                <article key={item.department} className="infoCard">
+                  <h3>{DEPARTMENT_LABELS[item.department]}</h3>
+                  <p>
+                    Uye {item.memberCount} | Aktif Gorev {item.openCount}
+                  </p>
+                  <p className="muted">
+                    Geciken {item.lateCount} | Kritik {item.criticalCount}
+                  </p>
+                  <button
+                    type="button"
+                    className="linkButton"
+                    onClick={() => focusDepartmentInTasks(item.department)}
+                  >
+                    Gorevlere git ve departmani sec
+                  </button>
+                </article>
+              ))}
+            </div>
             <div className="filterRow">
               <input
                 type="date"
@@ -2198,6 +2439,19 @@ export default function HomePage() {
                   <option value="BOARD">Kurul</option>
                   <option value="MEMBER">Üye</option>
                 </select>
+                <select
+                  value={teamDepartmentFilter}
+                  onChange={(e) =>
+                    setTeamDepartmentFilter(e.target.value as 'ALL' | Department)
+                  }
+                >
+                  <option value="ALL">Tum Departmanlar</option>
+                  {(Object.keys(DEPARTMENT_LABELS) as Department[]).map((department) => (
+                    <option key={department} value={department}>
+                      {DEPARTMENT_LABELS[department]}
+                    </option>
+                  ))}
+                </select>
               </div>
               <form onSubmit={createMember} className="formBlock">
                 <input
@@ -2235,6 +2489,39 @@ export default function HomePage() {
                     </option>
                   ))}
                 </select>
+                <select
+                  value={memberPrimaryDepartment}
+                  onChange={(e) => setMemberPrimaryDepartment(e.target.value as Department)}
+                >
+                  {(Object.keys(DEPARTMENT_LABELS) as Department[]).map((department) => (
+                    <option key={department} value={department}>
+                      1. Departman (zorunlu): {DEPARTMENT_LABELS[department]}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={memberSecondaryDepartment}
+                  onChange={(e) =>
+                    setMemberSecondaryDepartment(e.target.value as '' | Department)
+                  }
+                >
+                  <option value="">2. Departman (opsiyonel)</option>
+                  {(Object.keys(DEPARTMENT_LABELS) as Department[])
+                    .filter((department) => department !== memberPrimaryDepartment)
+                    .map((department) => (
+                      <option key={department} value={department}>
+                        {DEPARTMENT_LABELS[department]}
+                      </option>
+                    ))}
+                </select>
+                <label className="muted">
+                  <input
+                    type="checkbox"
+                    checked={memberIsIntern}
+                    onChange={(e) => setMemberIsIntern(e.target.checked)}
+                  />{' '}
+                  Stajyer
+                </label>
                 {memberFieldError && <p className="fieldError">{memberFieldError}</p>}
                 <button type="submit" disabled={isCreatingMember}>
                   {isCreatingMember ? 'Ekleniyor...' : 'Uye Ekle'}
@@ -2246,10 +2533,23 @@ export default function HomePage() {
                     <div>
                       <strong>{m.name}</strong>
                       <div className="muted">{m.email}</div>
+                      <div className="muted">
+                        Departman:{' '}
+                        {(m.departments ?? []).length > 0
+                          ? (m.departments ?? [])
+                              .map((x) => DEPARTMENT_LABELS[x.department])
+                              .join(', ')
+                          : '-'}
+                        {m.isIntern ? ' | Stajyer' : ''}
+                      </div>
                     </div>
-                    <button type="button" onClick={() => deactivateMember(m.id)}>
-                      Pasifleştir
-                    </button>
+                    {m.role === 'CAPTAIN' || m.id === currentUser?.id ? (
+                      <span className="muted">Kaptan hesabi</span>
+                    ) : (
+                      <button type="button" onClick={() => deactivateMember(m.id)}>
+                        Pasiflestir
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -2310,36 +2610,110 @@ export default function HomePage() {
                   <option value="CRITICAL">{PRIORITY_LABELS.CRITICAL}</option>
                 </select>
                 <select
-                  value={ticketPrimaryAssigneeId}
-                  onChange={(e) => {
-                    const nextPrimary = e.target.value;
-                    setTicketPrimaryAssigneeId(nextPrimary);
-                    if (ticketSecondaryAssigneeId === nextPrimary) {
-                      setTicketSecondaryAssigneeId('');
-                    }
-                  }}
-                  required
+                  value={ticketAssignmentMode}
+                  onChange={(e) =>
+                    setTicketAssignmentMode(e.target.value as 'MANUAL' | 'DEPARTMENT')
+                  }
                 >
-                  <option value="">1. atanan (zorunlu)</option>
-                  {activeTeamMembers.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name}
-                    </option>
-                  ))}
+                  <option value="MANUAL">Atama: Manuel</option>
+                  <option value="DEPARTMENT">Atama: Departman Bazli</option>
                 </select>
-                <select
-                  value={ticketSecondaryAssigneeId}
-                  onChange={(e) => setTicketSecondaryAssigneeId(e.target.value)}
-                >
-                  <option value="">2. atanan (opsiyonel)</option>
-                  {activeTeamMembers
-                    .filter((m) => m.id !== ticketPrimaryAssigneeId)
-                    .map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.name}
-                      </option>
-                    ))}
-                </select>
+                {ticketAssignmentMode === 'MANUAL' && (
+                  <>
+                    <select
+                      value={ticketManualDepartmentFilter}
+                      onChange={(e) =>
+                        setTicketManualDepartmentFilter(e.target.value as 'ALL' | Department)
+                      }
+                    >
+                      <option value="ALL">Atanan filtresi: Tum departmanlar</option>
+                      {(Object.keys(DEPARTMENT_LABELS) as Department[]).map((department) => (
+                        <option key={department} value={department}>
+                          Atanan filtresi: {DEPARTMENT_LABELS[department]}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={ticketPrimaryAssigneeId}
+                      onChange={(e) => {
+                        const nextPrimary = e.target.value;
+                        setTicketPrimaryAssigneeId(nextPrimary);
+                        if (ticketSecondaryAssigneeId === nextPrimary) {
+                          setTicketSecondaryAssigneeId('');
+                        }
+                      }}
+                      required
+                    >
+                      <option value="">1. atanan (zorunlu)</option>
+                      {manualAssignableMembers.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={ticketSecondaryAssigneeId}
+                      onChange={(e) => setTicketSecondaryAssigneeId(e.target.value)}
+                    >
+                      <option value="">2. atanan (opsiyonel)</option>
+                      {manualAssignableMembers
+                        .filter((m) => m.id !== ticketPrimaryAssigneeId)
+                        .map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.name}
+                          </option>
+                        ))}
+                    </select>
+                  </>
+                )}
+                {ticketAssignmentMode === 'DEPARTMENT' && (
+                  <>
+                    <select
+                      value={ticketTargetDepartment}
+                      onChange={(e) =>
+                        setTicketTargetDepartment(e.target.value as Department)
+                      }
+                    >
+                      {(Object.keys(DEPARTMENT_LABELS) as Department[]).map((department) => (
+                        <option key={department} value={department}>
+                          Departman: {DEPARTMENT_LABELS[department]}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={ticketDepartmentSelectionMode}
+                      onChange={(e) =>
+                        setTicketDepartmentSelectionMode(e.target.value as 'ALL' | 'SELECTED')
+                      }
+                    >
+                      <option value="ALL">Departmandaki tum uyeler</option>
+                      <option value="SELECTED">Departmandan secili uyeler</option>
+                    </select>
+                    {ticketDepartmentSelectionMode === 'SELECTED' && (
+                      <div className="submissionBox">
+                        {activeMembersInTargetDepartment.map((member) => (
+                          <label key={member.id} className="muted">
+                            <input
+                              type="checkbox"
+                              checked={ticketDepartmentMemberIds.includes(member.id)}
+                              onChange={(e) => {
+                                setTicketDepartmentMemberIds((prev) =>
+                                  e.target.checked
+                                    ? [...new Set([...prev, member.id])]
+                                    : prev.filter((id) => id !== member.id),
+                                );
+                              }}
+                            />{' '}
+                            {member.name}
+                          </label>
+                        ))}
+                        {activeMembersInTargetDepartment.length === 0 && (
+                          <p className="muted">Bu departmanda aktif uye yok.</p>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
                 <input
                   type="file"
                   accept=".pdf,.doc,.docx,.ppt,.pptx"
@@ -2672,6 +3046,71 @@ export default function HomePage() {
               )}
             </motion.div>
           )}
+          {!loading && !isCaptain && isBoard && memberTab === 'all_tasks' && (
+            <motion.div
+              key="board-all-tasks"
+              className="tabScene"
+              initial={{ opacity: 0, y: 10, scale: 0.99 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.99 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+            >
+              <div className="filterRow">
+                <input
+                  placeholder="Tum gorevlerde ara"
+                  value={boardAllTaskSearch}
+                  onChange={(e) => setBoardAllTaskSearch(e.target.value)}
+                />
+                <select
+                  value={boardAllTaskStatusFilter}
+                  onChange={(e) =>
+                    setBoardAllTaskStatusFilter(e.target.value as 'ALL' | TicketStatus)
+                  }
+                >
+                  <option value="ALL">Tum Durumlar</option>
+                  {STATUS_LIST.map((status) => (
+                    <option key={status} value={status}>
+                      {STATUS_LABELS[status]}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={boardAllTaskDepartmentFilter}
+                  onChange={(e) =>
+                    setBoardAllTaskDepartmentFilter(e.target.value as 'ALL' | Department)
+                  }
+                >
+                  <option value="ALL">Tum Departmanlar</option>
+                  {(Object.keys(DEPARTMENT_LABELS) as Department[]).map((department) => (
+                    <option key={department} value={department}>
+                      {DEPARTMENT_LABELS[department]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="ticketStack">
+                {boardAllTickets.map((ticket) => (
+                  <article key={ticket.id} className="ticketCard">
+                    <strong>{ticket.title}</strong>
+                    <p>{ticket.description || '-'}</p>
+                    <div className="ticketMeta">
+                      <span>{PRIORITY_LABELS[ticket.priority]}</span>
+                      <span>{STATUS_LABELS[ticket.status]}</span>
+                    </div>
+                    <p className="muted">
+                      Atananlar:{' '}
+                      {ticket.assignees.length > 0
+                        ? ticket.assignees.map((a) => a.member.name).join(', ')
+                        : 'Yok'}
+                    </p>
+                  </article>
+                ))}
+                {boardAllTickets.length === 0 && (
+                  <p className="muted">Bu filtreyle gorev bulunamadi.</p>
+                )}
+              </div>
+            </motion.div>
+          )}
           {!loading && !isCaptain && memberTab === 'my_tasks' && (
             <motion.div
               key="member-tasks"
@@ -2874,6 +3313,9 @@ export default function HomePage() {
     </main>
   );
 }
+
+
+
 
 
 

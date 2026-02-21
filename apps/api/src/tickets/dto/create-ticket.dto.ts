@@ -1,9 +1,9 @@
 import { TicketPriority } from '@prisma/client';
 import {
-  ArrayMinSize,
   ArrayMaxSize,
   IsArray,
   IsEnum,
+  IsIn,
   IsOptional,
   IsString,
   Length,
@@ -20,11 +20,23 @@ export class CreateTicketDto {
     if (typeof value === 'string' && value.trim().length > 0) return [value];
     return [];
   })
+  @IsOptional()
   @IsArray()
-  @ArrayMinSize(1)
-  @ArrayMaxSize(2)
+  @ArrayMaxSize(100)
   @IsString({ each: true })
-  assigneeIds!: string[];
+  assigneeIds?: string[];
+
+  @IsOptional()
+  @IsIn(['MANUAL', 'DEPARTMENT'])
+  assignmentMode?: 'MANUAL' | 'DEPARTMENT';
+
+  @IsOptional()
+  @IsIn(['SOFTWARE', 'INDUSTRIAL', 'MECHANICAL', 'ELECTRICAL_ELECTRONICS'])
+  targetDepartment?: 'SOFTWARE' | 'INDUSTRIAL' | 'MECHANICAL' | 'ELECTRICAL_ELECTRONICS';
+
+  @IsOptional()
+  @IsIn(['ALL', 'SELECTED'])
+  departmentSelectionMode?: 'ALL' | 'SELECTED';
 
   @IsString()
   @Length(3, 120)

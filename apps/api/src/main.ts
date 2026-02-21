@@ -120,6 +120,10 @@ async function bootstrap() {
         role: 'CAPTAIN',
         active: true,
         passwordHash: await auth.hashPassword(password),
+        departments: {
+          deleteMany: {},
+          create: [{ department: 'INDUSTRIAL' }],
+        },
       },
       create: {
         name: 'Ece MUTLUER',
@@ -127,6 +131,9 @@ async function bootstrap() {
         role: 'CAPTAIN',
         active: true,
         passwordHash: await auth.hashPassword(password),
+        departments: {
+          create: [{ department: 'INDUSTRIAL' }],
+        },
       },
     });
     // eslint-disable-next-line no-console

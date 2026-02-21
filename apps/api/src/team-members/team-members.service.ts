@@ -3,7 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Department, TeamRole } from '@prisma/client';
+import { Department, Prisma, TeamRole } from '@prisma/client';
 import { AuthService } from '../auth/auth.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTeamMemberDto } from './dto/create-team-member.dto';
@@ -41,38 +41,89 @@ export class TeamMembersService {
 
   async create(actorId: string, dto: CreateTeamMemberDto) {
     await this.assertCaptain(actorId);
-    await this.validateRoleCapacity(dto.role ?? TeamRole.MEMBER);
+    const normalizedEmail = dto.email.toLowerCase().trim();
+    const nextRole = dto.role ?? TeamRole.MEMBER;
+    const existingMember = await this.prisma.teamMember.findUnique({
+      where: { email: normalizedEmail },
+      select: { id: true, active: true },
+    });
+
+    if (existingMember?.active) {
+      throw new BadRequestException('Bu e-posta zaten kullaniliyor');
+    }
+
+    await this.validateRoleCapacity(nextRole, existingMember?.id);
     const departments = this.normalizeDepartments(
       dto.primaryDepartment,
       dto.secondaryDepartment,
     );
     const passwordHash = await this.authService.hashPassword(dto.password);
-    return this.prisma.teamMember.create({
-      data: {
-        name: dto.name.trim(),
-        email: dto.email.toLowerCase().trim(),
-        passwordHash,
-        role: dto.role ?? TeamRole.MEMBER,
-        isIntern: dto.isIntern ?? false,
-        departments: {
-          createMany: {
-            data: departments.map((department) => ({ department })),
+
+    if (existingMember && !existingMember.active) {
+      return this.prisma.teamMember.update({
+        where: { id: existingMember.id },
+        data: {
+          name: dto.name.trim(),
+          email: normalizedEmail,
+          passwordHash,
+          role: nextRole,
+          isIntern: dto.isIntern ?? false,
+          active: true,
+          passwordResetTokenHash: null,
+          passwordResetExpiresAt: null,
+          departments: {
+            deleteMany: {},
+            createMany: {
+              data: departments.map((department) => ({ department })),
+            },
           },
         },
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        isIntern: true,
-        active: true,
-        departments: {
-          select: { department: true },
-          orderBy: { department: 'asc' },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          isIntern: true,
+          active: true,
+          departments: {
+            select: { department: true },
+            orderBy: { department: 'asc' },
+          },
         },
-      },
-    });
+      });
+    }
+
+    try {
+      return this.prisma.teamMember.create({
+        data: {
+          name: dto.name.trim(),
+          email: normalizedEmail,
+          passwordHash,
+          role: nextRole,
+          isIntern: dto.isIntern ?? false,
+          departments: {
+            createMany: {
+              data: departments.map((department) => ({ department })),
+            },
+          },
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          isIntern: true,
+          active: true,
+          departments: {
+            select: { department: true },
+            orderBy: { department: 'asc' },
+          },
+        },
+      });
+    } catch (error) {
+      this.rethrowKnownPrismaError(error);
+      throw error;
+    }
   }
 
   async update(actorId: string, id: string, dto: UpdateTeamMemberDto) {
@@ -96,39 +147,44 @@ export class TeamMembersService {
         ? this.normalizeDepartments(dto.primaryDepartment, dto.secondaryDepartment)
         : null;
 
-    return this.prisma.teamMember.update({
-      where: { id },
-      data: {
-        name: dto.name?.trim(),
-        email: dto.email?.toLowerCase().trim(),
-        role: dto.role,
-        active: dto.active,
-        isIntern: dto.isIntern,
-        passwordHash,
-        ...(nextDepartments
-          ? {
-              departments: {
-                deleteMany: {},
-                createMany: {
-                  data: nextDepartments.map((department) => ({ department })),
+    try {
+      return this.prisma.teamMember.update({
+        where: { id },
+        data: {
+          name: dto.name?.trim(),
+          email: dto.email?.toLowerCase().trim(),
+          role: dto.role,
+          active: dto.active,
+          isIntern: dto.isIntern,
+          passwordHash,
+          ...(nextDepartments
+            ? {
+                departments: {
+                  deleteMany: {},
+                  createMany: {
+                    data: nextDepartments.map((department) => ({ department })),
+                  },
                 },
-              },
-            }
-          : {}),
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        isIntern: true,
-        active: true,
-        departments: {
-          select: { department: true },
-          orderBy: { department: 'asc' },
+              }
+            : {}),
         },
-      },
-    });
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          isIntern: true,
+          active: true,
+          departments: {
+            select: { department: true },
+            orderBy: { department: 'asc' },
+          },
+        },
+      });
+    } catch (error) {
+      this.rethrowKnownPrismaError(error);
+      throw error;
+    }
   }
 
   async deactivate(actorId: string, id: string) {
@@ -214,6 +270,13 @@ export class TeamMembersService {
       throw new BadRequestException('En fazla iki departman secilebilir');
     }
     return unique;
+  }
+
+  private rethrowKnownPrismaError(error: unknown): never | void {
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return;
+    if (error.code === 'P2002') {
+      throw new BadRequestException('Bu e-posta zaten kullaniliyor');
+    }
   }
 }
 

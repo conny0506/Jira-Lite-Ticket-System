@@ -315,18 +315,24 @@ body::before {
 }
 
 .loginWideImage {
-  width: min(1120px, 92vw);
-  margin: 16px auto 0;
+  width: min(860px, 90vw);
+  max-height: 170px;
+  margin: 10px auto 0;
   border-radius: 18px;
   border: 1px solid var(--line);
   overflow: hidden;
   line-height: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(6, 12, 22, 0.55);
 }
 
 .loginWideImage img {
   display: block;
-  width: 100%;
-  height: auto;
+  width: auto;
+  height: 100%;
+  max-width: 100%;
+  object-fit: contain;
 }
 
 .introShell {
@@ -1348,6 +1354,11 @@ select[multiple] {
 @media (max-width: 640px) {
   .app {
     width: min(1400px, 96vw);
+  }
+
+  .loginWideImage {
+    max-height: 120px;
+    width: min(620px, 92vw);
   }
 
   .stats {

@@ -1,19 +1,24 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { Department, Prisma, TeamRole } from '@prisma/client';
 import { AuthService } from '../auth/auth.service';
+import { PasswordResetMailService } from '../auth/password-reset-mail.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTeamMemberDto } from './dto/create-team-member.dto';
 import { UpdateTeamMemberDto } from './dto/update-team-member.dto';
 
 @Injectable()
 export class TeamMembersService {
+  private readonly logger = new Logger(TeamMembersService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly authService: AuthService,
+    private readonly mailService: PasswordResetMailService,
   ) {}
 
   async list(actorId: string, activeOnly?: boolean) {
@@ -60,7 +65,7 @@ export class TeamMembersService {
     const passwordHash = await this.authService.hashPassword(dto.password);
 
     if (existingMember && !existingMember.active) {
-      return this.prisma.teamMember.update({
+      const restored = await this.prisma.teamMember.update({
         where: { id: existingMember.id },
         data: {
           name: dto.name.trim(),
@@ -91,10 +96,12 @@ export class TeamMembersService {
           },
         },
       });
+      await this.notifyWelcome(restored.email, restored.name, restored.isIntern);
+      return restored;
     }
 
     try {
-      return this.prisma.teamMember.create({
+      const created = await this.prisma.teamMember.create({
         data: {
           name: dto.name.trim(),
           email: normalizedEmail,
@@ -120,6 +127,8 @@ export class TeamMembersService {
           },
         },
       });
+      await this.notifyWelcome(created.email, created.name, created.isIntern);
+      return created;
     } catch (error) {
       this.rethrowKnownPrismaError(error);
       throw error;
@@ -130,7 +139,7 @@ export class TeamMembersService {
     await this.assertCaptain(actorId);
     const member = await this.prisma.teamMember.findUnique({
       where: { id },
-      select: { id: true, role: true },
+      select: { id: true, role: true, isIntern: true, email: true, name: true },
     });
     if (!member) throw new NotFoundException('Takım üyesi bulunamadı');
 
@@ -148,7 +157,7 @@ export class TeamMembersService {
         : null;
 
     try {
-      return this.prisma.teamMember.update({
+      const updated = await this.prisma.teamMember.update({
         where: { id },
         data: {
           name: dto.name?.trim(),
@@ -181,6 +190,8 @@ export class TeamMembersService {
           },
         },
       });
+      await this.notifyPromotion(member, updated);
+      return updated;
     } catch (error) {
       this.rethrowKnownPrismaError(error);
       throw error;
@@ -276,6 +287,47 @@ export class TeamMembersService {
     if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return;
     if (error.code === 'P2002') {
       throw new BadRequestException('Bu e-posta zaten kullaniliyor');
+    }
+  }
+
+  private async notifyWelcome(email: string, name: string, isIntern: boolean) {
+    try {
+      await this.mailService.sendWelcomeEmail({
+        to: email,
+        name,
+        kind: isIntern ? 'intern' : 'member',
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'unknown';
+      this.logger.error(`Welcome mail failed for ${email}: ${message}`);
+    }
+  }
+
+  private async notifyPromotion(
+    before: { role: TeamRole; isIntern: boolean; email: string; name: string },
+    after: { role: TeamRole; isIntern: boolean; email: string; name: string },
+  ) {
+    let kind: 'intern_to_member' | 'member_to_board' | null = null;
+    if (before.isIntern && !after.isIntern && after.role === TeamRole.MEMBER) {
+      kind = 'intern_to_member';
+    } else if (
+      !before.isIntern &&
+      before.role === TeamRole.MEMBER &&
+      after.role === TeamRole.BOARD
+    ) {
+      kind = 'member_to_board';
+    }
+
+    if (!kind) return;
+    try {
+      await this.mailService.sendPromotionEmail({
+        to: after.email,
+        name: after.name,
+        kind,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'unknown';
+      this.logger.error(`Promotion mail failed for ${after.email}: ${message}`);
     }
   }
 }

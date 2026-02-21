@@ -1,0 +1,2 @@
+ALTER TABLE "Meeting"
+ADD COLUMN "includeInterns" BOOLEAN NOT NULL DEFAULT true;

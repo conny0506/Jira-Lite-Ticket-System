@@ -74,6 +74,7 @@ type MeetingInfo = {
   scheduledAt: string;
   meetingUrl: string;
   note?: string | null;
+  includeInterns?: boolean;
   reminderSentAt?: string | null;
   createdBy: Pick<TeamMember, 'id' | 'name' | 'email'>;
 };
@@ -84,11 +85,19 @@ type CaptainTab =
   | 'overview'
   | 'team'
   | 'tasks'
-  | 'submissions';
-type MemberTab = 'home' | 'my_tasks' | 'my_submissions' | 'timeline' | 'all_tasks';
+  | 'submissions'
+  | 'settings';
+type MemberTab =
+  | 'home'
+  | 'my_tasks'
+  | 'my_submissions'
+  | 'timeline'
+  | 'all_tasks'
+  | 'settings';
 type ToastItem = { id: number; type: 'success' | 'error'; message: string };
 type NotificationItem = ToastItem & { createdAt: string };
 type IntroStage = 'none' | 'terminal' | 'quote';
+type QuoteApiResponse = { quote?: { id: string; text: string } | null };
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 const TYPEWRITER_CHARS_PER_SECOND = 120;
@@ -125,7 +134,7 @@ const DEPARTMENT_LABELS: Record<Department, string> = {
   ELECTRICAL_ELECTRONICS: 'Elektrik ve Elektronik',
 };
 
-const SUCCESS_QUOTES = [
+const FALLBACK_QUOTES = [
   'Disiplinli ilerleme, günlük motivasyondan daha güçlüdür.',
   'Küçük ama sürekli adımlar, büyük sonuçlar üretir.',
   'Mükemmeli bekleme, bugün başla ve geliştir.',
@@ -142,8 +151,7 @@ type TicketCreateDraft = {
   targetDepartment: Department;
   departmentSelectionMode: 'ALL' | 'SELECTED';
   departmentMemberIds: string[];
-  primaryAssigneeId: string;
-  secondaryAssigneeId: string;
+  manualAssigneeIds: string[];
   attachmentFile: File | null;
   attachmentNote: string;
 };
@@ -169,14 +177,12 @@ function validateTicketCreateDraft(draft: TicketCreateDraft) {
     return 'Gorev basligi en az 3 karakter olmali';
   }
   if (draft.assignmentMode === 'MANUAL') {
-    if (!draft.primaryAssigneeId) {
+    const manualAssigneeIds = normalizeAssigneeIds(draft.manualAssigneeIds);
+    if (manualAssigneeIds.length < 1) {
       return 'En az 1 atanan secmelisin';
     }
-    if (
-      draft.secondaryAssigneeId &&
-      draft.secondaryAssigneeId === draft.primaryAssigneeId
-    ) {
-      return 'Ikinci atanan, birinci atanan ile ayni olamaz';
+    if (manualAssigneeIds.length !== draft.manualAssigneeIds.filter(Boolean).length) {
+      return 'Ayni uye birden fazla kez atanamaz';
     }
   } else if (draft.departmentSelectionMode === 'SELECTED') {
     if (draft.departmentMemberIds.length < 1) {
@@ -194,10 +200,7 @@ function buildCreateTicketFormData(draft: TicketCreateDraft) {
   form.set('dueAt', new Date(draft.dueAt).toISOString());
   form.set('assignmentMode', draft.assignmentMode);
   if (draft.assignmentMode === 'MANUAL') {
-    form.append('assigneeIds', draft.primaryAssigneeId);
-    if (draft.secondaryAssigneeId) {
-      form.append('assigneeIds', draft.secondaryAssigneeId);
-    }
+    normalizeAssigneeIds(draft.manualAssigneeIds).forEach((id) => form.append('assigneeIds', id));
   } else {
     form.set('targetDepartment', draft.targetDepartment);
     form.set('departmentSelectionMode', draft.departmentSelectionMode);
@@ -215,10 +218,10 @@ function buildCreateTicketFormData(draft: TicketCreateDraft) {
 }
 
 function pickNextQuote(previousQuote: string) {
-  if (SUCCESS_QUOTES.length < 2) return SUCCESS_QUOTES[0] ?? previousQuote;
+  if (FALLBACK_QUOTES.length < 2) return FALLBACK_QUOTES[0] ?? previousQuote;
   let next = previousQuote;
   while (next === previousQuote) {
-    next = SUCCESS_QUOTES[Math.floor(Math.random() * SUCCESS_QUOTES.length)];
+    next = FALLBACK_QUOTES[Math.floor(Math.random() * FALLBACK_QUOTES.length)];
   }
   return next;
 }
@@ -275,8 +278,7 @@ export default function HomePage() {
   const [ticketDepartmentMemberIds, setTicketDepartmentMemberIds] = useState<string[]>([]);
   const [ticketManualDepartmentFilter, setTicketManualDepartmentFilter] =
     useState<'ALL' | Department>('ALL');
-  const [ticketPrimaryAssigneeId, setTicketPrimaryAssigneeId] = useState('');
-  const [ticketSecondaryAssigneeId, setTicketSecondaryAssigneeId] = useState('');
+  const [ticketManualAssigneeIds, setTicketManualAssigneeIds] = useState<string[]>(['', '']);
   const [ticketAttachmentFile, setTicketAttachmentFile] = useState<File | null>(null);
   const [ticketAttachmentNote, setTicketAttachmentNote] = useState('');
 
@@ -290,8 +292,14 @@ export default function HomePage() {
   const [meetingScheduledAt, setMeetingScheduledAt] = useState('');
   const [meetingUrl, setMeetingUrl] = useState('');
   const [meetingNote, setMeetingNote] = useState('');
+  const [meetingIncludeInterns, setMeetingIncludeInterns] = useState(true);
   const [meetingFieldError, setMeetingFieldError] = useState('');
   const [isSavingMeeting, setIsSavingMeeting] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [settingsFieldError, setSettingsFieldError] = useState('');
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [taskLayout, setTaskLayout] = useState<'board' | 'list'>('board');
   const [teamSearch, setTeamSearch] = useState('');
   const [teamRoleFilter, setTeamRoleFilter] = useState<'ALL' | TeamRole>('ALL');
@@ -311,6 +319,8 @@ export default function HomePage() {
     useState<'ALL' | string>('ALL');
   const [submissionStartDate, setSubmissionStartDate] = useState('');
   const [submissionEndDate, setSubmissionEndDate] = useState('');
+  const [captainMemberDepartmentFilter, setCaptainMemberDepartmentFilter] =
+    useState<'ALL' | Department>('ALL');
   const [captainMemberFocusId, setCaptainMemberFocusId] = useState('');
   const [reviewReasons, setReviewReasons] = useState<Record<string, string>>({});
   const [reviewingTicketId, setReviewingTicketId] = useState<string | null>(null);
@@ -333,7 +343,7 @@ export default function HomePage() {
   const [captainMetricsStart, setCaptainMetricsStart] = useState('');
   const [captainMetricsEnd, setCaptainMetricsEnd] = useState('');
   const [introStage, setIntroStage] = useState<IntroStage>('none');
-  const [introQuote, setIntroQuote] = useState(SUCCESS_QUOTES[0]);
+  const [introQuote, setIntroQuote] = useState(FALLBACK_QUOTES[0]);
   const [introTypedChars, setIntroTypedChars] = useState(0);
   const [memberTasksPulse, setMemberTasksPulse] = useState(false);
   const [isBugReportOpen, setIsBugReportOpen] = useState(false);
@@ -342,6 +352,7 @@ export default function HomePage() {
   const [bugReportError, setBugReportError] = useState('');
   const toastIdRef = useRef(1);
   const previousUnseenTaskCountRef = useRef(0);
+  const introQuoteRef = useRef(introQuote);
 
   const currentUser = authBundle?.user ?? null;
   const isCaptain = currentUser?.role === 'CAPTAIN';
@@ -404,24 +415,20 @@ export default function HomePage() {
 
   useEffect(() => {
     if (ticketAssignmentMode !== 'MANUAL') return;
-    if (
-      ticketPrimaryAssigneeId &&
-      !manualAssignableMembers.some((member) => member.id === ticketPrimaryAssigneeId)
-    ) {
-      setTicketPrimaryAssigneeId('');
-    }
-    if (
-      ticketSecondaryAssigneeId &&
-      !manualAssignableMembers.some((member) => member.id === ticketSecondaryAssigneeId)
-    ) {
-      setTicketSecondaryAssigneeId('');
-    }
+    setTicketManualAssigneeIds((prev) => {
+      const allowed = new Set(manualAssignableMembers.map((member) => member.id));
+      const next = prev.map((id) => (id && !allowed.has(id) ? '' : id));
+      return next.length < 2 ? [...next, ...Array.from({ length: 2 - next.length }, () => '')] : next;
+    });
   }, [
     ticketAssignmentMode,
     manualAssignableMembers,
-    ticketPrimaryAssigneeId,
-    ticketSecondaryAssigneeId,
   ]);
+
+  const canAddManualAssigneeField = useMemo(() => {
+    if (ticketManualAssigneeIds.length < 2) return false;
+    return ticketManualAssigneeIds.every((id) => Boolean(id));
+  }, [ticketManualAssigneeIds]);
 
   const filteredSelectedProjectTickets = tickets.filter((t) => {
     const search = taskSearch.trim().toLowerCase();
@@ -783,7 +790,22 @@ export default function HomePage() {
     return introTerminalLines[lineIndex].slice(0, visibleChars);
   };
 
-  const captainMemberPages = useMemo(() => activeTeamMembers, [activeTeamMembers]);
+  const captainMemberPages = useMemo(() => {
+    if (captainMemberDepartmentFilter === 'ALL') return activeTeamMembers;
+    return activeTeamMembers.filter((member) =>
+      (member.departments ?? []).some(
+        (item) => item.department === captainMemberDepartmentFilter,
+      ),
+    );
+  }, [activeTeamMembers, captainMemberDepartmentFilter]);
+
+  const captainDepartmentOptions = useMemo(() => {
+    return (Object.keys(DEPARTMENT_LABELS) as Department[]).filter((department) =>
+      activeTeamMembers.some((member) =>
+        (member.departments ?? []).some((item) => item.department === department),
+      ),
+    );
+  }, [activeTeamMembers]);
 
   const captainFocusedMember = useMemo(
     () => captainMemberPages.find((member) => member.id === captainMemberFocusId) ?? null,
@@ -1020,6 +1042,25 @@ export default function HomePage() {
     return res.json();
   }
 
+  async function fetchRandomIntroQuote(previousQuote: string) {
+    try {
+      const res = await fetch(`${API_URL}/quotes/random`, { cache: 'no-store' });
+      if (!res.ok) throw new Error(await extractErrorMessage(res));
+      const data = (await res.json()) as QuoteApiResponse;
+      const nextQuote = data.quote?.text?.trim();
+      if (!nextQuote) return pickNextQuote(previousQuote);
+      return nextQuote;
+    } catch {
+      return pickNextQuote(previousQuote);
+    }
+  }
+
+  async function rotateIntroQuote() {
+    const nextQuote = await fetchRandomIntroQuote(introQuoteRef.current);
+    introQuoteRef.current = nextQuote;
+    setIntroQuote(nextQuote);
+  }
+
   async function loadAll() {
     if (!currentUser) return;
     const [projectData, memberData, ticketData, meetingData] = await Promise.all([
@@ -1036,6 +1077,7 @@ export default function HomePage() {
     setMeetingScheduledAt(nextMeeting ? toDatetimeLocalValue(nextMeeting.scheduledAt) : '');
     setMeetingUrl(nextMeeting?.meetingUrl ?? '');
     setMeetingNote(nextMeeting?.note ?? '');
+    setMeetingIncludeInterns(nextMeeting?.includeInterns ?? true);
   }
 
   useEffect(() => {
@@ -1049,10 +1091,11 @@ export default function HomePage() {
           taskLayout?: 'board' | 'list';
           teamRoleFilter?: 'ALL' | TeamRole;
           teamDepartmentFilter?: 'ALL' | Department;
-          taskStatusFilter?: 'ALL' | TicketStatus;
-          taskPriorityFilter?: 'ALL' | TicketPriority;
-          boardAllTaskDepartmentFilter?: 'ALL' | Department;
-        };
+        taskStatusFilter?: 'ALL' | TicketStatus;
+        taskPriorityFilter?: 'ALL' | TicketPriority;
+        boardAllTaskDepartmentFilter?: 'ALL' | Department;
+        captainMemberDepartmentFilter?: 'ALL' | Department;
+      };
         if (parsed.captainTab) setCaptainTab(parsed.captainTab);
         if (parsed.memberTab) setMemberTab(parsed.memberTab);
         if (parsed.taskLayout) setTaskLayout(parsed.taskLayout);
@@ -1064,6 +1107,9 @@ export default function HomePage() {
         if (parsed.taskPriorityFilter) setTaskPriorityFilter(parsed.taskPriorityFilter);
         if (parsed.boardAllTaskDepartmentFilter) {
           setBoardAllTaskDepartmentFilter(parsed.boardAllTaskDepartmentFilter);
+        }
+        if (parsed.captainMemberDepartmentFilter) {
+          setCaptainMemberDepartmentFilter(parsed.captainMemberDepartmentFilter);
         }
       } catch {}
     }
@@ -1201,6 +1247,7 @@ export default function HomePage() {
         taskStatusFilter,
         taskPriorityFilter,
         boardAllTaskDepartmentFilter,
+        captainMemberDepartmentFilter,
       }),
     );
   }, [
@@ -1212,7 +1259,12 @@ export default function HomePage() {
     taskStatusFilter,
     taskPriorityFilter,
     boardAllTaskDepartmentFilter,
+    captainMemberDepartmentFilter,
   ]);
+
+  useEffect(() => {
+    introQuoteRef.current = introQuote;
+  }, [introQuote]);
 
   useEffect(() => {
     if (introStage !== 'terminal') return;
@@ -1235,7 +1287,7 @@ export default function HomePage() {
   useEffect(() => {
     if (introStage !== 'quote') return;
     const timer = setInterval(() => {
-      setIntroQuote((prev) => pickNextQuote(prev));
+      void rotateIntroQuote();
     }, QUOTE_ROTATE_MS);
     return () => clearInterval(timer);
   }, [introStage]);
@@ -1265,7 +1317,7 @@ export default function HomePage() {
       setLoading(true);
       setAuthBundle(bundle);
       setIntroStage('terminal');
-      setIntroQuote((prev) => pickNextQuote(prev));
+      void rotateIntroQuote();
       setLoginEmail('');
       setLoginPassword('');
       showToast('success', 'Giriş başarılı');
@@ -1297,7 +1349,50 @@ export default function HomePage() {
     setCaptainTab('home');
     setMemberTab('home');
     setIntroStage('none');
-    showToast('success', 'Oturum kapatıldı');
+    showToast('success', 'Oturum kapatildi');
+  }
+
+  async function changePassword(e: FormEvent) {
+    e.preventDefault();
+    if (!authBundle) return;
+    if (isChangingPassword) return;
+    setSettingsFieldError('');
+
+    if (currentPassword.length < 4) {
+      setSettingsFieldError('Mevcut sifre en az 4 karakter olmali.');
+      return;
+    }
+    if (newPassword.length < 6) {
+      setSettingsFieldError('Yeni sifre en az 6 karakter olmali.');
+      return;
+    }
+    if (newPassword !== confirmNewPassword) {
+      setSettingsFieldError('Yeni sifre ve tekrar sifresi ayni olmali.');
+      return;
+    }
+
+    try {
+      setIsChangingPassword(true);
+      await apiFetch('/auth/change-password', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          currentPassword,
+          newPassword,
+        }),
+      });
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmNewPassword('');
+      await logout();
+      showToast('success', 'Sifre degistirildi. Guvenlik nedeniyle tekrar giris yapin.');
+    } catch (error) {
+      setSettingsFieldError(
+        error instanceof Error ? error.message : 'Sifre degistirilemedi.',
+      );
+    } finally {
+      setIsChangingPassword(false);
+    }
   }
 
   async function submitBugReport(e: FormEvent) {
@@ -1365,12 +1460,14 @@ export default function HomePage() {
           scheduledAt: scheduled.toISOString(),
           meetingUrl: trimmedUrl,
           note: meetingNote.trim() || undefined,
+          includeInterns: meetingIncludeInterns,
         }),
       })) as { meeting: MeetingInfo };
       setMeeting(result.meeting);
       setMeetingScheduledAt(toDatetimeLocalValue(result.meeting.scheduledAt));
       setMeetingUrl(result.meeting.meetingUrl);
       setMeetingNote(result.meeting.note ?? '');
+      setMeetingIncludeInterns(result.meeting.includeInterns ?? true);
       showToast('success', 'Toplanti planlandi.');
     } catch (error) {
       setMeetingFieldError(error instanceof Error ? error.message : 'Toplanti planlanamadi.');
@@ -1450,6 +1547,27 @@ export default function HomePage() {
     }
   }
 
+  function setManualAssigneeAt(index: number, memberId: string) {
+    setTicketManualAssigneeIds((prev) =>
+      prev.map((value, idx) => (idx === index ? memberId : value)),
+    );
+  }
+
+  function addManualAssigneeField() {
+    if (!canAddManualAssigneeField) return;
+    setTicketManualAssigneeIds((prev) => [...prev, '']);
+  }
+
+  function removeManualAssigneeField(index: number) {
+    setTicketManualAssigneeIds((prev) => {
+      if (index < 2 || prev.length <= 2) return prev;
+      const next = prev.filter((_, idx) => idx !== index);
+      return next.length < 2
+        ? [...next, ...Array.from({ length: 2 - next.length }, () => '')]
+        : next;
+    });
+  }
+
   async function createTicket(e: FormEvent) {
     e.preventDefault();
     if (!isCaptain) return;
@@ -1465,8 +1583,7 @@ export default function HomePage() {
       targetDepartment: ticketTargetDepartment,
       departmentSelectionMode: ticketDepartmentSelectionMode,
       departmentMemberIds: ticketDepartmentMemberIds,
-      primaryAssigneeId: ticketPrimaryAssigneeId,
-      secondaryAssigneeId: ticketSecondaryAssigneeId,
+      manualAssigneeIds: ticketManualAssigneeIds,
       attachmentFile: ticketAttachmentFile,
       attachmentNote: ticketAttachmentNote,
     };
@@ -1490,8 +1607,7 @@ export default function HomePage() {
       setTicketTargetDepartment('SOFTWARE');
       setTicketDepartmentSelectionMode('ALL');
       setTicketDepartmentMemberIds([]);
-      setTicketPrimaryAssigneeId('');
-      setTicketSecondaryAssigneeId('');
+      setTicketManualAssigneeIds(['', '']);
       setTicketAttachmentFile(null);
       setTicketAttachmentNote('');
       await loadAll();
@@ -2036,8 +2152,8 @@ export default function HomePage() {
                 type="button"
                 className="introActionBtn"
                 onClick={() => {
-                  setIntroQuote((prev) => pickNextQuote(prev));
                   setIntroStage('quote');
+                  void rotateIntroQuote();
                 }}
               >
                 Girişe Devam Et
@@ -2186,6 +2302,7 @@ export default function HomePage() {
                 <button type="button" className={captainTab === 'team' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('team')}><span>Takim</span>{captainTab === 'team' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
                 <button type="button" className={captainTab === 'tasks' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('tasks')}><span>Gorevler</span>{captainTab === 'tasks' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
                 <button type="button" className={captainTab === 'submissions' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('submissions')}><span>Kisi Sayfalari</span>{captainTab === 'submissions' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                <button type="button" className={captainTab === 'settings' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('settings')}><span>Ayarlar</span>{captainTab === 'settings' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
               </div>
             </LayoutGroup>
           ) : (
@@ -2218,6 +2335,7 @@ export default function HomePage() {
                 </button>
                 <button type="button" className={memberTab === 'my_submissions' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('my_submissions')}><span>Teslimlerim</span>{memberTab === 'my_submissions' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
                 <button type="button" className={memberTab === 'timeline' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('timeline')}><span>Akis</span>{memberTab === 'timeline' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                <button type="button" className={memberTab === 'settings' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('settings')}><span>Ayarlar</span>{memberTab === 'settings' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
                 {isBoard && (
                   <button type="button" className={memberTab === 'all_tasks' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('all_tasks')}><span>Tum Gorevler</span>{memberTab === 'all_tasks' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
                 )}
@@ -2317,15 +2435,74 @@ export default function HomePage() {
                     setMeetingFieldError('');
                   }}
                 />
+                <label className="muted">
+                  <input
+                    type="checkbox"
+                    checked={meetingIncludeInterns}
+                    onChange={(e) => {
+                      setMeetingIncludeInterns(e.target.checked);
+                      setMeetingFieldError('');
+                    }}
+                  />{' '}
+                  Stajyerler toplantiya katilabilir
+                </label>
                 {meetingFieldError && <p className="fieldError">{meetingFieldError}</p>}
                 <button type="submit" disabled={isSavingMeeting}>
                   {isSavingMeeting ? 'Kaydediliyor...' : 'Toplantiyi Planla'}
                 </button>
               </form>
               <p className="muted">
-                Toplanti saatine 15 dakika kala aktif tum kullanicilara e-posta hatirlatmasi
-                gonderilir.
+                Toplanti saatine 15 dakika kala seciminize gore aktif uyelere e-posta
+                hatirlatmasi gonderilir.
               </p>
+            </motion.div>
+          )}
+          {!loading && isCaptain && captainTab === 'settings' && (
+            <motion.div
+              key="captain-settings"
+              className="tabScene"
+              initial={{ opacity: 0, y: 10, scale: 0.99 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.99 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+            >
+              <form className="formBlock" onSubmit={changePassword}>
+                <h3>Ayarlar</h3>
+                <input
+                  type="password"
+                  placeholder="Mevcut sifre"
+                  value={currentPassword}
+                  onChange={(e) => {
+                    setCurrentPassword(e.target.value);
+                    setSettingsFieldError('');
+                  }}
+                  required
+                />
+                <input
+                  type="password"
+                  placeholder="Yeni sifre"
+                  value={newPassword}
+                  onChange={(e) => {
+                    setNewPassword(e.target.value);
+                    setSettingsFieldError('');
+                  }}
+                  required
+                />
+                <input
+                  type="password"
+                  placeholder="Yeni sifre tekrar"
+                  value={confirmNewPassword}
+                  onChange={(e) => {
+                    setConfirmNewPassword(e.target.value);
+                    setSettingsFieldError('');
+                  }}
+                  required
+                />
+                {settingsFieldError && <p className="fieldError">{settingsFieldError}</p>}
+                <button type="submit" disabled={isChangingPassword}>
+                  {isChangingPassword ? 'Degistiriliyor...' : 'Sifreyi Degistir'}
+                </button>
+              </form>
             </motion.div>
           )}
           {!loading && isCaptain && captainTab === 'overview' && (
@@ -2636,37 +2813,51 @@ export default function HomePage() {
                         </option>
                       ))}
                     </select>
-                    <select
-                      value={ticketPrimaryAssigneeId}
-                      onChange={(e) => {
-                        const nextPrimary = e.target.value;
-                        setTicketPrimaryAssigneeId(nextPrimary);
-                        if (ticketSecondaryAssigneeId === nextPrimary) {
-                          setTicketSecondaryAssigneeId('');
-                        }
-                      }}
-                      required
+                    {ticketManualAssigneeIds.map((selectedMemberId, index) => {
+                      const selectedByOthers = new Set(
+                        ticketManualAssigneeIds.filter((id, idx) => idx !== index && Boolean(id)),
+                      );
+                      const selectableMembers = manualAssignableMembers.filter(
+                        (member) =>
+                          !selectedByOthers.has(member.id) || member.id === selectedMemberId,
+                      );
+                      const placeholder =
+                        index === 0
+                          ? '1. atanan (zorunlu)'
+                          : `${index + 1}. atanan (opsiyonel)`;
+
+                      return (
+                        <div key={`manual-assignee-${index}`} className="submissionBox">
+                          <select
+                            value={selectedMemberId}
+                            onChange={(e) => setManualAssigneeAt(index, e.target.value)}
+                            required={index === 0}
+                          >
+                            <option value="">{placeholder}</option>
+                            {selectableMembers.map((m) => (
+                              <option key={m.id} value={m.id}>
+                                {m.name}
+                              </option>
+                            ))}
+                          </select>
+                          {index >= 2 && (
+                            <button
+                              type="button"
+                              onClick={() => removeManualAssigneeField(index)}
+                            >
+                              -
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                    <button
+                      type="button"
+                      onClick={addManualAssigneeField}
+                      disabled={!canAddManualAssigneeField}
                     >
-                      <option value="">1. atanan (zorunlu)</option>
-                      {manualAssignableMembers.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.name}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      value={ticketSecondaryAssigneeId}
-                      onChange={(e) => setTicketSecondaryAssigneeId(e.target.value)}
-                    >
-                      <option value="">2. atanan (opsiyonel)</option>
-                      {manualAssignableMembers
-                        .filter((m) => m.id !== ticketPrimaryAssigneeId)
-                        .map((m) => (
-                          <option key={m.id} value={m.id}>
-                            {m.name}
-                          </option>
-                        ))}
-                    </select>
+                      + Atanan Ekle
+                    </button>
                   </>
                 )}
                 {ticketAssignmentMode === 'DEPARTMENT' && (
@@ -2802,14 +2993,31 @@ export default function HomePage() {
             >
               <div className="filterRow">
                 <select
+                  value={captainMemberDepartmentFilter}
+                  onChange={(e) =>
+                    setCaptainMemberDepartmentFilter(e.target.value as 'ALL' | Department)
+                  }
+                >
+                  <option value="ALL">Tum Departmanlar</option>
+                  {captainDepartmentOptions.map((department) => (
+                    <option key={department} value={department}>
+                      {DEPARTMENT_LABELS[department]}
+                    </option>
+                  ))}
+                </select>
+                <select
                   value={captainMemberFocusId}
                   onChange={(e) => setCaptainMemberFocusId(e.target.value)}
                 >
-                  {captainMemberPages.map((member) => (
-                    <option key={member.id} value={member.id}>
-                      {member.name}
-                    </option>
-                  ))}
+                  {captainMemberPages.length === 0 ? (
+                    <option value="">Uye bulunamadi</option>
+                  ) : (
+                    captainMemberPages.map((member) => (
+                      <option key={member.id} value={member.id}>
+                        {member.name}
+                      </option>
+                    ))
+                  )}
                 </select>
                 <input
                   placeholder="Teslim veya gorev ara"
@@ -3047,6 +3255,54 @@ export default function HomePage() {
                   <p>{meeting.note}</p>
                 </article>
               )}
+            </motion.div>
+          )}
+          {!loading && !isCaptain && memberTab === 'settings' && (
+            <motion.div
+              key="member-settings"
+              className="tabScene"
+              initial={{ opacity: 0, y: 10, scale: 0.99 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.99 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+            >
+              <form className="formBlock" onSubmit={changePassword}>
+                <h3>Ayarlar</h3>
+                <input
+                  type="password"
+                  placeholder="Mevcut sifre"
+                  value={currentPassword}
+                  onChange={(e) => {
+                    setCurrentPassword(e.target.value);
+                    setSettingsFieldError('');
+                  }}
+                  required
+                />
+                <input
+                  type="password"
+                  placeholder="Yeni sifre"
+                  value={newPassword}
+                  onChange={(e) => {
+                    setNewPassword(e.target.value);
+                    setSettingsFieldError('');
+                  }}
+                  required
+                />
+                <input
+                  type="password"
+                  placeholder="Yeni sifre tekrar"
+                  value={confirmNewPassword}
+                  onChange={(e) => {
+                    setConfirmNewPassword(e.target.value);
+                    setSettingsFieldError('');
+                  }}
+                  required
+                />
+                {settingsFieldError && <p className="fieldError">{settingsFieldError}</p>}
+                <button type="submit" disabled={isChangingPassword}>
+                  {isChangingPassword ? 'Degistiriliyor...' : 'Sifreyi Degistir'}
+                </button>
+              </form>
             </motion.div>
           )}
           {!loading && !isCaptain && isBoard && memberTab === 'all_tasks' && (
@@ -3316,6 +3572,8 @@ export default function HomePage() {
     </main>
   );
 }
+
+
 
 
 

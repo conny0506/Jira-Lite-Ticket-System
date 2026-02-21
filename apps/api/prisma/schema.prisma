@@ -117,6 +117,7 @@ model Meeting {
   scheduledAt    DateTime
   meetingUrl     String
   note           String?
+  includeInterns Boolean    @default(true)
   createdById    String
   reminderSentAt DateTime?
   canceledAt     DateTime?
@@ -198,4 +199,15 @@ model LoginAudit {
   member     TeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
 
   @@index([memberId, createdAt])
+}
+
+model MotivationalQuote {
+  id        String   @id @default(cuid())
+  text      String   @unique
+  isActive  Boolean  @default(true)
+  sortOrder Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
 }

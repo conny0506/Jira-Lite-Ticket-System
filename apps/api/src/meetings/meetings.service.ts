@@ -17,7 +17,7 @@ type MeetingRow = {
   scheduledAt: Date;
   meetingUrl: string;
   note: string | null;
-  includeInterns: boolean;
+  includeInterns?: boolean;
   reminderSentAt: Date | null;
   createdById: string;
   createdByName: string;
@@ -42,7 +42,7 @@ export class MeetingsService implements OnModuleInit, OnModuleDestroy {
       scheduledAt: row.scheduledAt.toISOString(),
       meetingUrl: row.meetingUrl,
       note: row.note,
-      includeInterns: row.includeInterns,
+      includeInterns: row.includeInterns ?? true,
       reminderSentAt: row.reminderSentAt ? row.reminderSentAt.toISOString() : null,
       createdBy: {
         id: row.createdById,
@@ -52,26 +52,53 @@ export class MeetingsService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  private isMissingIncludeInternsColumnError(error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.toLowerCase().includes('includeinterns');
+  }
+
   async getCurrent(actorId: string) {
     await this.authService.getActorOrThrow(actorId);
-    const rows = await this.prisma.$queryRaw<MeetingRow[]>`
-      SELECT
-        m."id",
-        m."scheduledAt",
-        m."meetingUrl",
-        m."note",
-        m."includeInterns",
-        m."reminderSentAt",
-        m."createdById",
-        t."name" AS "createdByName",
-        t."email" AS "createdByEmail"
-      FROM "Meeting" m
-      INNER JOIN "TeamMember" t ON t."id" = m."createdById"
-      WHERE m."canceledAt" IS NULL
-        AND m."scheduledAt" >= NOW()
-      ORDER BY m."scheduledAt" ASC
-      LIMIT 1
-    `;
+    let rows: MeetingRow[];
+    try {
+      rows = await this.prisma.$queryRaw<MeetingRow[]>`
+        SELECT
+          m."id",
+          m."scheduledAt",
+          m."meetingUrl",
+          m."note",
+          m."includeInterns",
+          m."reminderSentAt",
+          m."createdById",
+          t."name" AS "createdByName",
+          t."email" AS "createdByEmail"
+        FROM "Meeting" m
+        INNER JOIN "TeamMember" t ON t."id" = m."createdById"
+        WHERE m."canceledAt" IS NULL
+          AND m."scheduledAt" >= NOW()
+        ORDER BY m."scheduledAt" ASC
+        LIMIT 1
+      `;
+    } catch (error) {
+      if (!this.isMissingIncludeInternsColumnError(error)) throw error;
+      rows = await this.prisma.$queryRaw<MeetingRow[]>`
+        SELECT
+          m."id",
+          m."scheduledAt",
+          m."meetingUrl",
+          m."note",
+          m."reminderSentAt",
+          m."createdById",
+          t."name" AS "createdByName",
+          t."email" AS "createdByEmail"
+        FROM "Meeting" m
+        INNER JOIN "TeamMember" t ON t."id" = m."createdById"
+        WHERE m."canceledAt" IS NULL
+          AND m."scheduledAt" >= NOW()
+        ORDER BY m."scheduledAt" ASC
+        LIMIT 1
+      `;
+    }
 
     const meeting = rows[0] ? this.toMeetingResponse(rows[0]) : null;
     return { meeting };
@@ -109,20 +136,45 @@ export class MeetingsService implements OnModuleInit, OnModuleDestroy {
         AND "scheduledAt" >= ${now}
     `;
 
-    const insertedRows = await this.prisma.$queryRaw<
+    let insertedRows: Array<{
+      id: string;
+      scheduledAt: Date;
+      meetingUrl: string;
+      note: string | null;
+      includeInterns?: boolean;
+      reminderSentAt: Date | null;
+    }>;
+    try {
+      insertedRows = await this.prisma.$queryRaw<
       Array<{
         id: string;
         scheduledAt: Date;
         meetingUrl: string;
         note: string | null;
-        includeInterns: boolean;
+        includeInterns?: boolean;
         reminderSentAt: Date | null;
       }>
-    >`
-      INSERT INTO "Meeting" ("id", "scheduledAt", "meetingUrl", "note", "includeInterns", "createdById", "createdAt", "updatedAt")
-      VALUES (${meetingId}, ${scheduledAt}, ${meetingUrl}, ${dto.note?.trim() || null}, ${includeInterns}, ${actor.id}, NOW(), NOW())
-      RETURNING "id", "scheduledAt", "meetingUrl", "note", "includeInterns", "reminderSentAt"
-    `;
+      >`
+        INSERT INTO "Meeting" ("id", "scheduledAt", "meetingUrl", "note", "includeInterns", "createdById", "createdAt", "updatedAt")
+        VALUES (${meetingId}, ${scheduledAt}, ${meetingUrl}, ${dto.note?.trim() || null}, ${includeInterns}, ${actor.id}, NOW(), NOW())
+        RETURNING "id", "scheduledAt", "meetingUrl", "note", "includeInterns", "reminderSentAt"
+      `;
+    } catch (error) {
+      if (!this.isMissingIncludeInternsColumnError(error)) throw error;
+      insertedRows = await this.prisma.$queryRaw<
+        Array<{
+          id: string;
+          scheduledAt: Date;
+          meetingUrl: string;
+          note: string | null;
+          reminderSentAt: Date | null;
+        }>
+      >`
+        INSERT INTO "Meeting" ("id", "scheduledAt", "meetingUrl", "note", "createdById", "createdAt", "updatedAt")
+        VALUES (${meetingId}, ${scheduledAt}, ${meetingUrl}, ${dto.note?.trim() || null}, ${actor.id}, NOW(), NOW())
+        RETURNING "id", "scheduledAt", "meetingUrl", "note", "reminderSentAt"
+      `;
+    }
 
     const inserted = insertedRows[0];
     if (!inserted) {
@@ -165,22 +217,44 @@ export class MeetingsService implements OnModuleInit, OnModuleDestroy {
       const from = new Date(now.getTime() + 14 * 60 * 1000);
       const to = new Date(now.getTime() + 16 * 60 * 1000);
 
-      const meetings = await this.prisma.$queryRaw<
-        Array<{
-          id: string;
-          scheduledAt: Date;
-          meetingUrl: string;
-          note: string | null;
-          includeInterns: boolean;
-        }>
-      >`
-        SELECT "id", "scheduledAt", "meetingUrl", "note", "includeInterns"
-        FROM "Meeting"
-        WHERE "canceledAt" IS NULL
-          AND "reminderSentAt" IS NULL
-          AND "scheduledAt" >= ${from}
-          AND "scheduledAt" <= ${to}
-      `;
+      let meetings: Array<{
+        id: string;
+        scheduledAt: Date;
+        meetingUrl: string;
+        note: string | null;
+        includeInterns: boolean;
+      }>;
+      try {
+        meetings = await this.prisma.$queryRaw<
+          Array<{
+            id: string;
+            scheduledAt: Date;
+            meetingUrl: string;
+            note: string | null;
+            includeInterns: boolean;
+          }>
+        >`
+          SELECT "id", "scheduledAt", "meetingUrl", "note", "includeInterns"
+          FROM "Meeting"
+          WHERE "canceledAt" IS NULL
+            AND "reminderSentAt" IS NULL
+            AND "scheduledAt" >= ${from}
+            AND "scheduledAt" <= ${to}
+        `;
+      } catch (error) {
+        if (!this.isMissingIncludeInternsColumnError(error)) throw error;
+        const legacyMeetings = await this.prisma.$queryRaw<
+          Array<{ id: string; scheduledAt: Date; meetingUrl: string; note: string | null }>
+        >`
+          SELECT "id", "scheduledAt", "meetingUrl", "note"
+          FROM "Meeting"
+          WHERE "canceledAt" IS NULL
+            AND "reminderSentAt" IS NULL
+            AND "scheduledAt" >= ${from}
+            AND "scheduledAt" <= ${to}
+        `;
+        meetings = legacyMeetings.map((meeting) => ({ ...meeting, includeInterns: true }));
+      }
 
       if (meetings.length === 0) return;
 

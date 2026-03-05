@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { createReadStream } from 'fs';
+import { Readable } from 'stream';
 import { CurrentUserId } from '../auth/current-user-id.decorator';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { TicketsService } from './tickets.service';
@@ -173,7 +174,22 @@ export class TicketsController {
   ) {
     const file = await this.ticketsService.getSubmissionFile(actorId, submissionId);
     if (file.mode === 'redirect') {
-      return res.redirect(file.url);
+      const upstream = await fetch(file.url);
+      if (!upstream.ok) {
+        return res
+          .status(upstream.status)
+          .send(await upstream.text().catch(() => 'Dosya indirilemedi'));
+      }
+      if (!upstream.body) {
+        return res.status(502).send('Dosya akisi bulunamadi');
+      }
+      res.setHeader('Content-Type', file.mimeType);
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${encodeURIComponent(file.fileName)}"`,
+      );
+      Readable.fromWeb(upstream.body as any).pipe(res);
+      return;
     }
     res.setHeader('Content-Type', file.mimeType);
     res.setHeader(

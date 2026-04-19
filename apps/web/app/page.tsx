@@ -258,6 +258,7 @@ export default function HomePage() {
 
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(() => localStorage.getItem('jira_remember_me') === 'true');
 
   const [memberName, setMemberName] = useState('');
   const [memberEmail, setMemberEmail] = useState('');
@@ -1008,7 +1009,7 @@ export default function HomePage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({}),
+        body: JSON.stringify({ rememberMe: localStorage.getItem('jira_remember_me') === 'true' }),
       });
       if (!res.ok) {
         throw new Error(await extractErrorMessage(res));
@@ -1337,11 +1338,12 @@ export default function HomePage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, rememberMe }),
       });
       if (!res.ok) throw new Error(await extractErrorMessage(res));
       const bundle = (await res.json()) as AuthBundle;
       localStorage.setItem('jira_auth', JSON.stringify(bundle));
+      localStorage.setItem('jira_remember_me', String(rememberMe));
       setLoading(true);
       setAuthBundle(bundle);
       setIntroStage('terminal');
@@ -1370,6 +1372,7 @@ export default function HomePage() {
       }
     } catch {}
     localStorage.removeItem('jira_auth');
+    localStorage.removeItem('jira_remember_me');
     setAuthBundle(null);
     setProjects([]);
     setTickets([]);
@@ -2192,6 +2195,14 @@ export default function HomePage() {
               required
             />
             {loginFieldError && <p className="fieldError">{loginFieldError}</p>}
+            <label className="checkboxRow">
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+              />
+              Beni Hatırla
+            </label>
             <button type="submit" disabled={isLoggingIn}>
               {isLoggingIn ? 'Giris yapiliyor...' : 'Giris Yap'}
             </button>

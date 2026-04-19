@@ -46,6 +46,12 @@ enum TicketReviewAction {
   REJECTED
 }
 
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 model Project {
   id          String   @id @default(cuid())
   key         String   @unique
@@ -105,6 +111,9 @@ model TeamMember {
   loginAudits      LoginAudit[]
   meetingsCreated  Meeting[]
   departments      TeamMemberDepartment[]
+  announcements    Announcement[]
+  leaves           Leave[]
+  reviewedLeaves   Leave[]          @relation("LeaveReviewedBy")
 
   @@index([passwordResetTokenHash])
 }
@@ -229,4 +238,34 @@ model MotivationalQuote {
   updatedAt DateTime @updatedAt
 
   @@index([isActive])
+}
+
+model Announcement {
+  id          String     @id @default(cuid())
+  title       String
+  content     String
+  createdById String
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  createdBy   TeamMember @relation(fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+}
+
+model Leave {
+  id           String      @id @default(cuid())
+  memberId     String
+  startDate    DateTime
+  endDate      DateTime
+  reason       String
+  status       LeaveStatus @default(PENDING)
+  reviewedById String?
+  reviewNote   String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  member       TeamMember  @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  reviewedBy   TeamMember? @relation("LeaveReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([memberId, createdAt])
+  @@index([status])
 }

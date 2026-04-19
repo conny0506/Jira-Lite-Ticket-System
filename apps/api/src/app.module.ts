@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { AnnouncementsModule } from './announcements/announcements.module';
 import { AuthModule } from './auth/auth.module';
 import { HealthController } from './health.controller';
+import { LeavesModule } from './leaves/leaves.module';
 import { MeetingsModule } from './meetings/meetings.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProjectsModule } from './projects/projects.module';
@@ -14,7 +16,9 @@ import { TicketsModule } from './tickets/tickets.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    AnnouncementsModule,
     AuthModule,
+    LeavesModule,
     MeetingsModule,
     PrismaModule,
     QuotesModule,

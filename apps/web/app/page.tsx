@@ -89,6 +89,8 @@ type CaptainTab =
   | 'team'
   | 'tasks'
   | 'submissions'
+  | 'announcements'
+  | 'leaves'
   | 'settings';
 type MemberTab =
   | 'home'
@@ -96,7 +98,32 @@ type MemberTab =
   | 'my_submissions'
   | 'timeline'
   | 'all_tasks'
+  | 'announcements'
+  | 'my_leaves'
   | 'settings';
+
+type Announcement = {
+  id: string;
+  title: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: { id: string; name: string; role: TeamRole };
+};
+
+type LeaveStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+
+type Leave = {
+  id: string;
+  startDate: string;
+  endDate: string;
+  reason: string;
+  status: LeaveStatus;
+  reviewNote?: string | null;
+  createdAt: string;
+  member?: { id: string; name: string; role: TeamRole };
+  reviewedBy?: { id: string; name: string } | null;
+};
 type ToastItem = { id: number; type: 'success' | 'error'; message: string };
 type NotificationItem = ToastItem & { createdAt: string };
 type IntroStage = 'none' | 'terminal' | 'quote';
@@ -363,6 +390,20 @@ export default function HomePage() {
   const [bugReportError, setBugReportError] = useState('');
   const [deleteConfirmSubmission, setDeleteConfirmSubmission] = useState<Submission | null>(null);
   const [isDeletingSubmission, setIsDeletingSubmission] = useState(false);
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [announcementTitle, setAnnouncementTitle] = useState('');
+  const [announcementContent, setAnnouncementContent] = useState('');
+  const [isSubmittingAnnouncement, setIsSubmittingAnnouncement] = useState(false);
+  const [announcementFieldError, setAnnouncementFieldError] = useState('');
+  const [leaves, setLeaves] = useState<Leave[]>([]);
+  const [myLeaves, setMyLeaves] = useState<Leave[]>([]);
+  const [leaveStartDate, setLeaveStartDate] = useState('');
+  const [leaveEndDate, setLeaveEndDate] = useState('');
+  const [leaveReason, setLeaveReason] = useState('');
+  const [isSubmittingLeave, setIsSubmittingLeave] = useState(false);
+  const [leaveFieldError, setLeaveFieldError] = useState('');
+  const [reviewingLeaveId, setReviewingLeaveId] = useState<string | null>(null);
+  const [leaveReviewNote, setLeaveReviewNote] = useState('');
   const toastIdRef = useRef(1);
   const previousUnseenTaskCountRef = useRef(0);
   const introQuoteRef = useRef(introQuote);
@@ -1088,15 +1129,24 @@ export default function HomePage() {
 
   async function loadAll() {
     if (!currentUser) return;
-    const [projectData, memberData, ticketData, meetingData] = await Promise.all([
+    const isCaptainUser = currentUser.role === 'CAPTAIN';
+    const [projectData, memberData, ticketData, meetingData, announcementData, leaveData] = await Promise.all([
       apiFetch('/projects'),
       apiFetch('/team-members'),
       apiFetch('/tickets'),
       apiFetch('/meetings/current'),
+      apiFetch('/announcements'),
+      isCaptainUser ? apiFetch('/leaves') : apiFetch('/leaves/mine'),
     ]);
     setProjects(projectData);
     setTeamMembers(memberData);
     setTickets(ticketData);
+    setAnnouncements(announcementData as Announcement[]);
+    if (isCaptainUser) {
+      setLeaves(leaveData as Leave[]);
+    } else {
+      setMyLeaves(leaveData as Leave[]);
+    }
     const nextMeeting = (meetingData as { meeting?: MeetingInfo | null }).meeting ?? null;
     setMeeting(nextMeeting);
     setMeetingScheduledAt(nextMeeting ? toDatetimeLocalValue(nextMeeting.scheduledAt) : '');
@@ -1463,6 +1513,86 @@ export default function HomePage() {
       setBugReportError(message);
     } finally {
       setIsBugReportSending(false);
+    }
+  }
+
+  async function createAnnouncement(e: FormEvent) {
+    e.preventDefault();
+    if (isSubmittingAnnouncement) return;
+    const title = announcementTitle.trim();
+    const content = announcementContent.trim();
+    if (!title) { setAnnouncementFieldError('Baslik zorunludur'); return; }
+    if (!content) { setAnnouncementFieldError('Icerik zorunludur'); return; }
+    try {
+      setIsSubmittingAnnouncement(true);
+      setAnnouncementFieldError('');
+      const result = await apiFetch('/announcements', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, content }) });
+      setAnnouncements((prev) => [result as Announcement, ...prev]);
+      setAnnouncementTitle('');
+      setAnnouncementContent('');
+      showToast('success', 'Duyuru olusturuldu.');
+    } catch (error) {
+      setAnnouncementFieldError(error instanceof Error ? error.message : 'Duyuru olusturulamadi.');
+    } finally {
+      setIsSubmittingAnnouncement(false);
+    }
+  }
+
+  async function deleteAnnouncement(id: string) {
+    try {
+      await apiFetch(`/announcements/${id}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' } });
+      setAnnouncements((prev) => prev.filter((a) => a.id !== id));
+      showToast('success', 'Duyuru silindi.');
+    } catch (error) {
+      showToast('error', error instanceof Error ? error.message : 'Duyuru silinemedi.');
+    }
+  }
+
+  async function createLeave(e: FormEvent) {
+    e.preventDefault();
+    if (isSubmittingLeave) return;
+    if (!leaveStartDate) { setLeaveFieldError('Baslangic tarihi zorunludur'); return; }
+    if (!leaveEndDate) { setLeaveFieldError('Bitis tarihi zorunludur'); return; }
+    if (new Date(leaveEndDate) < new Date(leaveStartDate)) {
+      setLeaveFieldError('Bitis tarihi baslangic tarihinden once olamaz');
+      return;
+    }
+    if (!leaveReason.trim()) { setLeaveFieldError('Sebep zorunludur'); return; }
+    try {
+      setIsSubmittingLeave(true);
+      setLeaveFieldError('');
+      const result = await apiFetch('/leaves', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ startDate: leaveStartDate, endDate: leaveEndDate, reason: leaveReason.trim() }),
+      });
+      setMyLeaves((prev) => [result as Leave, ...prev]);
+      setLeaveStartDate('');
+      setLeaveEndDate('');
+      setLeaveReason('');
+      showToast('success', 'Izin talebiniz gonderildi.');
+    } catch (error) {
+      setLeaveFieldError(error instanceof Error ? error.message : 'Izin talebi gonderilemedi.');
+    } finally {
+      setIsSubmittingLeave(false);
+    }
+  }
+
+  async function reviewLeave(id: string, status: 'APPROVED' | 'REJECTED') {
+    try {
+      const result = await apiFetch(`/leaves/${id}/review`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status, reviewNote: leaveReviewNote.trim() || undefined }),
+      });
+      setLeaves((prev) =>
+        prev.map((l) => (l.id === id ? { ...l, ...(result as Leave) } : l)),
+      );
+      setReviewingLeaveId(null);
+      setLeaveReviewNote('');
+      showToast('success', status === 'APPROVED' ? 'Izin onaylandi.' : 'Izin reddedildi.');
+    } catch (error) {
+      showToast('error', error instanceof Error ? error.message : 'Islem basarisiz.');
     }
   }
 
@@ -2479,6 +2609,8 @@ export default function HomePage() {
                 <button type="button" className={captainTab === 'team' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('team')}><span>Takim</span>{captainTab === 'team' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
                 <button type="button" className={captainTab === 'tasks' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('tasks')}><span>Gorevler</span>{captainTab === 'tasks' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
                 <button type="button" className={captainTab === 'submissions' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('submissions')}><span>Kisi Sayfalari</span>{captainTab === 'submissions' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                <button type="button" className={captainTab === 'announcements' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('announcements')}><span>Duyurular</span>{captainTab === 'announcements' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                <button type="button" className={captainTab === 'leaves' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('leaves')}><span>Izin Talepleri</span>{captainTab === 'leaves' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
                 <button type="button" className={captainTab === 'settings' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('settings')}><span>Ayarlar</span>{captainTab === 'settings' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
               </div>
             </LayoutGroup>
@@ -2512,6 +2644,8 @@ export default function HomePage() {
                 </button>
                 <button type="button" className={memberTab === 'my_submissions' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('my_submissions')}><span>Teslimlerim</span>{memberTab === 'my_submissions' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
                 <button type="button" className={memberTab === 'timeline' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('timeline')}><span>Akis</span>{memberTab === 'timeline' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                <button type="button" className={memberTab === 'announcements' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('announcements')}><span>Duyurular</span>{memberTab === 'announcements' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                <button type="button" className={memberTab === 'my_leaves' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('my_leaves')}><span>Izin Taleplerim</span>{memberTab === 'my_leaves' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
                 <button type="button" className={memberTab === 'settings' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('settings')}><span>Ayarlar</span>{memberTab === 'settings' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
                 {isBoard && (
                   <button type="button" className={memberTab === 'all_tasks' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('all_tasks')}><span>Tum Gorevler</span>{memberTab === 'all_tasks' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
@@ -3786,6 +3920,187 @@ export default function HomePage() {
                 </li>
               ))}
             </motion.ul>
+          )}
+
+          {!loading && isCaptain && captainTab === 'announcements' && (
+            <motion.div
+              key="captain-announcements"
+              className="tabScene"
+              initial={{ opacity: 0, y: 10, scale: 0.99 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.99 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+            >
+              <form className="formBlock" onSubmit={createAnnouncement}>
+                <h3>Yeni Duyuru</h3>
+                <input
+                  placeholder="Baslik"
+                  value={announcementTitle}
+                  onChange={(e) => { setAnnouncementTitle(e.target.value); setAnnouncementFieldError(''); }}
+                  required
+                />
+                <textarea
+                  placeholder="Icerik"
+                  value={announcementContent}
+                  onChange={(e) => { setAnnouncementContent(e.target.value); setAnnouncementFieldError(''); }}
+                  required
+                />
+                {announcementFieldError && <p className="fieldError">{announcementFieldError}</p>}
+                <button type="submit" disabled={isSubmittingAnnouncement}>
+                  {isSubmittingAnnouncement ? 'Gonderiliyor...' : 'Duyuru Olustur'}
+                </button>
+              </form>
+              <ul className="submissionRows" style={{ marginTop: '1.5rem' }}>
+                {announcements.map((a) => (
+                  <li key={a.id}>
+                    <div>
+                      <strong>{a.title}</strong>
+                      <p style={{ whiteSpace: 'pre-wrap' }}>{a.content}</p>
+                      <p className="muted" style={{ fontSize: '0.8rem' }}>
+                        {a.createdBy.name} &mdash; {new Date(a.createdAt).toLocaleDateString('tr-TR')}
+                      </p>
+                    </div>
+                    <button type="button" className="dangerBtn" onClick={() => deleteAnnouncement(a.id)}>
+                      Sil
+                    </button>
+                  </li>
+                ))}
+                {announcements.length === 0 && <p className="muted">Henuz duyuru yok.</p>}
+              </ul>
+            </motion.div>
+          )}
+
+          {!loading && isCaptain && captainTab === 'leaves' && (
+            <motion.div
+              key="captain-leaves"
+              className="tabScene"
+              initial={{ opacity: 0, y: 10, scale: 0.99 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.99 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+            >
+              <h3>Izin Talepleri</h3>
+              <ul className="submissionRows" style={{ marginTop: '1rem' }}>
+                {leaves.map((leave) => (
+                  <li key={leave.id}>
+                    <div style={{ flex: 1 }}>
+                      <strong>{leave.member?.name ?? '—'}</strong>
+                      <p>
+                        {new Date(leave.startDate).toLocaleDateString('tr-TR')} &ndash;{' '}
+                        {new Date(leave.endDate).toLocaleDateString('tr-TR')}
+                      </p>
+                      <p className="muted">{leave.reason}</p>
+                      <span className={`fileBadge type-${leave.status.toLowerCase()}`}>{leave.status === 'PENDING' ? 'Bekliyor' : leave.status === 'APPROVED' ? 'Onaylandi' : 'Reddedildi'}</span>
+                      {leave.reviewNote && <p className="muted" style={{ fontSize: '0.8rem' }}>Not: {leave.reviewNote}</p>}
+                    </div>
+                    {leave.status === 'PENDING' && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', minWidth: '160px' }}>
+                        {reviewingLeaveId === leave.id ? (
+                          <>
+                            <input
+                              placeholder="Inceleme notu (opsiyonel)"
+                              value={leaveReviewNote}
+                              onChange={(e) => setLeaveReviewNote(e.target.value)}
+                            />
+                            <div style={{ display: 'flex', gap: '0.4rem' }}>
+                              <button type="button" onClick={() => reviewLeave(leave.id, 'APPROVED')}>Onayla</button>
+                              <button type="button" className="dangerBtn" onClick={() => reviewLeave(leave.id, 'REJECTED')}>Reddet</button>
+                              <button type="button" className="bugSecondaryBtn" onClick={() => { setReviewingLeaveId(null); setLeaveReviewNote(''); }}>Vazgec</button>
+                            </div>
+                          </>
+                        ) : (
+                          <button type="button" onClick={() => setReviewingLeaveId(leave.id)}>Incele</button>
+                        )}
+                      </div>
+                    )}
+                  </li>
+                ))}
+                {leaves.length === 0 && <p className="muted">Henuz izin talebi yok.</p>}
+              </ul>
+            </motion.div>
+          )}
+
+          {!loading && !isCaptain && memberTab === 'announcements' && (
+            <motion.div
+              key="member-announcements"
+              className="tabScene"
+              initial={{ opacity: 0, y: 10, scale: 0.99 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.99 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+            >
+              <h3>Duyurular</h3>
+              <ul className="submissionRows" style={{ marginTop: '1rem' }}>
+                {announcements.map((a) => (
+                  <li key={a.id}>
+                    <div>
+                      <strong>{a.title}</strong>
+                      <p style={{ whiteSpace: 'pre-wrap' }}>{a.content}</p>
+                      <p className="muted" style={{ fontSize: '0.8rem' }}>
+                        {a.createdBy.name} &mdash; {new Date(a.createdAt).toLocaleDateString('tr-TR')}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+                {announcements.length === 0 && <p className="muted">Henuz duyuru yok.</p>}
+              </ul>
+            </motion.div>
+          )}
+
+          {!loading && !isCaptain && memberTab === 'my_leaves' && (
+            <motion.div
+              key="member-leaves"
+              className="tabScene"
+              initial={{ opacity: 0, y: 10, scale: 0.99 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.99 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+            >
+              <form className="formBlock" onSubmit={createLeave}>
+                <h3>Izin Talebi Olustur</h3>
+                <label style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>Baslangic Tarihi</label>
+                <input
+                  type="date"
+                  value={leaveStartDate}
+                  onChange={(e) => { setLeaveStartDate(e.target.value); setLeaveFieldError(''); }}
+                  required
+                />
+                <label style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>Bitis Tarihi</label>
+                <input
+                  type="date"
+                  value={leaveEndDate}
+                  onChange={(e) => { setLeaveEndDate(e.target.value); setLeaveFieldError(''); }}
+                  required
+                />
+                <input
+                  placeholder="Sebep"
+                  value={leaveReason}
+                  onChange={(e) => { setLeaveReason(e.target.value); setLeaveFieldError(''); }}
+                  required
+                />
+                {leaveFieldError && <p className="fieldError">{leaveFieldError}</p>}
+                <button type="submit" disabled={isSubmittingLeave}>
+                  {isSubmittingLeave ? 'Gonderiliyor...' : 'Talep Gonder'}
+                </button>
+              </form>
+              <ul className="submissionRows" style={{ marginTop: '1.5rem' }}>
+                {myLeaves.map((leave) => (
+                  <li key={leave.id}>
+                    <div>
+                      <p>
+                        <strong>{new Date(leave.startDate).toLocaleDateString('tr-TR')}</strong>
+                        {' '}&ndash;{' '}
+                        <strong>{new Date(leave.endDate).toLocaleDateString('tr-TR')}</strong>
+                      </p>
+                      <p className="muted">{leave.reason}</p>
+                      <span className={`fileBadge type-${leave.status.toLowerCase()}`}>{leave.status === 'PENDING' ? 'Bekliyor' : leave.status === 'APPROVED' ? 'Onaylandi' : 'Reddedildi'}</span>
+                      {leave.reviewNote && <p className="muted" style={{ fontSize: '0.8rem' }}>Not: {leave.reviewNote}</p>}
+                    </div>
+                  </li>
+                ))}
+                {myLeaves.length === 0 && <p className="muted">Henuz izin talebiniz yok.</p>}
+              </ul>
+            </motion.div>
           )}
           </AnimatePresence>
         </section>

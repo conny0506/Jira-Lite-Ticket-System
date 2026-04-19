@@ -6,6 +6,7 @@
     "apps/*"
   ],
   "scripts": {
+    "postinstall": "npm run prisma:generate -w @jira-lite/api",
     "dev": "npm run dev -w @jira-lite/api & npm run dev -w @jira-lite/web",
     "dev:api": "npm run dev -w @jira-lite/api",
     "dev:web": "npm run dev -w @jira-lite/web",

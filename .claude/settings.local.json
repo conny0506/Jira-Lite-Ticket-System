@@ -14,7 +14,8 @@
       "Bash(git -C \"C:\\\\Users\\\\musta\\\\Desktop\\\\Jira-lite Ticket Sistemi\" diff)",
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(npx prisma *)"
     ]
   }
 }

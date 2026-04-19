@@ -37,7 +37,9 @@ export class StorageService {
       requestChecksumCalculation: 'WHEN_REQUIRED',
       responseChecksumValidation: 'WHEN_REQUIRED',
     });
-    // R2's S3 API rejects requests that include checksum headers in the signature
+    // Strip checksum headers before the signing middleware so they are excluded
+    // from the Authorization signature. priority:'high' + added after SDK init = outermost,
+    // meaning this runs before awsAuthMiddleware which is also 'high' but registered earlier.
     client.middlewareStack.add(
       (next) => async (args: any) => {
         const headers: Record<string, string> = args.request.headers;
@@ -47,7 +49,7 @@ export class StorageService {
         delete headers['x-amz-trailer'];
         return next(args);
       },
-      { step: 'finalizeRequest', name: 'stripR2IncompatibleHeaders', priority: 'low' },
+      { step: 'finalizeRequest', name: 'stripR2IncompatibleHeaders', priority: 'high' },
     );
     return client;
   }
@@ -69,9 +71,9 @@ export class StorageService {
           Bucket: this.s3Bucket,
           Key: key,
           Body: file.buffer,
-          ContentType: this.normalizeMimeType(file.mimetype, extension),
+          ContentType: this.normalizeMimeType(extension),
           Metadata: {
-            originalname: file.originalname,
+            originalname: encodeURIComponent(file.originalname),
           },
         }),
       );
@@ -127,8 +129,7 @@ export class StorageService {
     return name.slice(dot).toLowerCase();
   }
 
-  private normalizeMimeType(input: string, extension: string) {
-    if (input && input !== 'application/octet-stream') return input;
+  private normalizeMimeType(extension: string) {
     const map: Record<string, string> = {
       '.pdf': 'application/pdf',
       '.doc': 'application/msword',

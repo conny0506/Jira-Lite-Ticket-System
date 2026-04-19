@@ -3,6 +3,7 @@
 import { DragEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import Link from 'next/link';
+import type { Options as DocxPreviewOptions } from 'docx-preview';
 
 type TeamRole = 'MEMBER' | 'BOARD' | 'CAPTAIN' | 'RD_LEADER';
 type Department = 'SOFTWARE' | 'INDUSTRIAL' | 'MECHANICAL' | 'ELECTRICAL_ELECTRONICS';
@@ -423,6 +424,7 @@ export default function HomePage() {
   const previousUnseenTaskCountRef = useRef(0);
   const introQuoteRef = useRef(introQuote);
   const sseRef = useRef<EventSource | null>(null);
+  const docxContainerRef = useRef<HTMLDivElement | null>(null);
 
   const currentUser = authBundle?.user ?? null;
   const isCaptain = currentUser?.role === 'CAPTAIN';
@@ -1140,6 +1142,7 @@ export default function HomePage() {
     assertRoleAccess(path, method);
     const headers: Record<string, string> = {
       Authorization: `Bearer ${authBundle.accessToken}`,
+      ...(init?.body && typeof init.body === 'string' ? { 'Content-Type': 'application/json' } : {}),
       ...(init?.headers ? (init.headers as Record<string, string>) : {}),
     };
     let res: Response;
@@ -2350,7 +2353,23 @@ export default function HomePage() {
       );
       if (!res.ok) throw new Error(await res.text());
       const blob = await res.blob();
-      setPreviewBlobUrl(URL.createObjectURL(blob));
+      const name = submission.fileName.toLowerCase();
+      if (name.endsWith('.docx') || name.endsWith('.doc')) {
+        const { renderAsync } = await import('docx-preview');
+        setPreviewBlobUrl('docx');
+        setPreviewLoading(false);
+        // wait for the container ref to mount
+        await new Promise<void>((resolve) => setTimeout(resolve, 50));
+        if (docxContainerRef.current) {
+          docxContainerRef.current.innerHTML = '';
+          await renderAsync(blob, docxContainerRef.current, undefined, {
+            className: 'docx-preview',
+            inWrapper: false,
+          } as DocxPreviewOptions);
+        }
+      } else {
+        setPreviewBlobUrl(URL.createObjectURL(blob));
+      }
     } catch (e) {
       showToast('error', (e as Error).message);
       setPreviewSub(null);
@@ -2360,7 +2379,8 @@ export default function HomePage() {
   }
 
   function closeFilePreview() {
-    if (previewBlobUrl) URL.revokeObjectURL(previewBlobUrl);
+    if (previewBlobUrl && previewBlobUrl !== 'docx') URL.revokeObjectURL(previewBlobUrl);
+    if (docxContainerRef.current) docxContainerRef.current.innerHTML = '';
     setPreviewBlobUrl(null);
     setPreviewSub(null);
   }
@@ -4322,14 +4342,17 @@ export default function HomePage() {
             </div>
             <div className="previewBody">
               {previewLoading && <p className="muted" style={{ textAlign: 'center', padding: '2rem' }}>Dosya yükleniyor...</p>}
-              {!previewLoading && previewBlobUrl && previewSub.fileName.toLowerCase().endsWith('.pdf') && (
+              {!previewLoading && previewBlobUrl && previewBlobUrl !== 'docx' && previewSub.fileName.toLowerCase().endsWith('.pdf') && (
                 <iframe
                   src={previewBlobUrl}
                   title={previewSub.fileName}
                   className="previewFrame"
                 />
               )}
-              {!previewLoading && previewBlobUrl && !previewSub.fileName.toLowerCase().endsWith('.pdf') && (
+              {previewBlobUrl === 'docx' && (
+                <div ref={docxContainerRef} className="previewDocx" />
+              )}
+              {!previewLoading && previewBlobUrl && previewBlobUrl !== 'docx' && !previewSub.fileName.toLowerCase().endsWith('.pdf') && (
                 <div style={{ display: 'grid', gap: '1rem', placeItems: 'center', padding: '3rem 1rem' }}>
                   <p className="muted">Bu dosya formatı ({previewSub.fileName.split('.').pop()?.toUpperCase()}) tarayıcıda önizlenemiyor.</p>
                   <button type="button" onClick={() => downloadSubmission(previewSub)}>Dosyayı İndir</button>

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -784,6 +785,26 @@ export class TicketsService {
       submission.mimeType,
     );
     return { ...target, fileName: submission.fileName, mimeType: submission.mimeType };
+  }
+
+  async deleteSubmission(actorId: string, submissionId: string) {
+    const submission = await this.prisma.submission.findUnique({
+      where: { id: submissionId },
+      select: { id: true, submittedById: true, storageName: true },
+    });
+    if (!submission) throw new NotFoundException('Teslim bulunamadi');
+
+    const actor = await this.authService.getActorOrThrow(actorId);
+    if (actor.role === TeamRole.CAPTAIN || actor.role === TeamRole.BOARD) {
+      throw new ForbiddenException('Teslim silme islemi yalnizca teslimi gonderen uye tarafindan yapilabilir');
+    }
+    if (submission.submittedById !== actorId) {
+      throw new ForbiddenException('Yalnizca kendi teslimlerinizi silebilirsiniz');
+    }
+
+    await this.storageService.deleteFile(submission.storageName).catch(() => {});
+    await this.prisma.submission.delete({ where: { id: submissionId } });
+    return { ok: true };
   }
 
   private async withSeenAssignments<T extends { id: string; assignees: Array<any> }>(

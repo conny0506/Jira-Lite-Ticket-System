@@ -1,7 +1,7 @@
 import {
   BadRequestException,
   Injectable,
-  ServiceUnavailableException,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import * as argon2 from 'argon2';
@@ -12,6 +12,7 @@ import { signAccessToken } from './token.util';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
   private readonly accessTtlSeconds = Number(process.env.ACCESS_TOKEN_TTL_SECONDS ?? 300);
   private readonly refreshTtlDays = Number(process.env.REFRESH_TOKEN_TTL_DAYS ?? 14);
   private readonly passwordResetTtlMinutes = Number(
@@ -214,18 +215,13 @@ export class AuthService {
       `${(process.env.WEB_ORIGIN ?? 'http://localhost:3000').split(',')[0].trim()}/reset-password`;
     const resetUrl = `${baseUrl}?token=${encodeURIComponent(rawToken)}`;
 
-    try {
-      await this.passwordResetMailService.sendPasswordResetEmail({
-        to: member.email,
-        name: member.name,
-        resetUrl,
+    // Fire-and-forget: respond immediately so SMTP latency doesn't block the client
+    this.passwordResetMailService
+      .sendPasswordResetEmail({ to: member.email, name: member.name, resetUrl })
+      .catch((error: unknown) => {
+        const detail = error instanceof Error ? error.message : String(error);
+        this.logger.error(`Sifre sifirlama e-postasi gonderilemedi [${member.email}]: ${detail}`);
       });
-    } catch (error) {
-      const detail = (error as Error).message ? ` (${(error as Error).message})` : '';
-      throw new ServiceUnavailableException(
-        `Sifre sifirlama e-postasi gonderilemedi. SMTP ayarlarini kontrol edin${detail}`,
-      );
-    }
 
     return { ok: true };
   }

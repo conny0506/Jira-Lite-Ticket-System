@@ -258,7 +258,9 @@ export default function HomePage() {
 
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
-  const [rememberMe, setRememberMe] = useState(() => localStorage.getItem('jira_remember_me') === 'true');
+  const [rememberMe, setRememberMe] = useState(() =>
+    typeof window !== 'undefined' && localStorage.getItem('jira_remember_me') === 'true',
+  );
 
   const [memberName, setMemberName] = useState('');
   const [memberEmail, setMemberEmail] = useState('');

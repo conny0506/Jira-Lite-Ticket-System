@@ -393,6 +393,7 @@ export default function HomePage() {
   const [introTypedChars, setIntroTypedChars] = useState(0);
   const [memberTasksPulse, setMemberTasksPulse] = useState(false);
   const [unseenAnnouncementCount, setUnseenAnnouncementCount] = useState(0);
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [isBugReportOpen, setIsBugReportOpen] = useState(false);
   const [bugReportText, setBugReportText] = useState('');
   const [isBugReportSending, setIsBugReportSending] = useState(false);
@@ -729,6 +730,35 @@ export default function HomePage() {
     });
   }, [activeTeamMembers, tickets]);
 
+  const captainMemberStats = useMemo(() => {
+    const nowMs = Date.now();
+    return activeTeamMembers
+      .filter((m) => m.role === 'MEMBER' || m.role === 'RD_LEADER')
+      .map((member) => {
+        const memberTickets = tickets.filter((t) =>
+          t.assignees.some((a) => a.member.id === member.id),
+        );
+        const done = memberTickets.filter((t) => t.status === 'DONE');
+        const active = memberTickets.filter((t) => t.status !== 'DONE');
+        const late = memberTickets.filter((t) => {
+          if (!t.dueAt) return false;
+          const dueMs = new Date(t.dueAt).getTime();
+          if (t.status === 'DONE' && t.completedAt) {
+            return new Date(t.completedAt).getTime() > dueMs;
+          }
+          return dueMs < nowMs;
+        });
+        const doneTimes = done
+          .filter((t) => !!t.completedAt && !!t.createdAt)
+          .map((t) => (new Date(t.completedAt as string).getTime() - new Date(t.createdAt as string).getTime()) / 86_400_000);
+        const avgDays = doneTimes.length > 0
+          ? doneTimes.reduce((s, v) => s + v, 0) / doneTimes.length
+          : null;
+        return { member, total: memberTickets.length, done: done.length, active: active.length, late: late.length, avgDays };
+      })
+      .sort((a, b) => b.total - a.total);
+  }, [activeTeamMembers, tickets]);
+
   const filteredNotificationHistory = useMemo(() => {
     if (notificationFilter === 'ALL') return notificationHistory;
     return notificationHistory.filter((n) => n.type === notificationFilter);
@@ -1043,6 +1073,8 @@ export default function HomePage() {
           if (memberTabRef.current !== 'announcements') {
             setUnseenAnnouncementCount((c) => c + 1);
           }
+        } else if (payload.type === 'ticket:deadline') {
+          showToast('error', `Son 24 saat! "${payload.ticketTitle}" teslim tarihi yaklasiyor.`);
         }
       } catch {
         // malformed event — ignore
@@ -1372,6 +1404,16 @@ export default function HomePage() {
   useEffect(() => {
     memberTabRef.current = memberTab;
   }, [memberTab]);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('jira_theme') as 'dark' | 'light' | null;
+    if (saved === 'light') setTheme('light');
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme === 'light' ? 'light' : '';
+    localStorage.setItem('jira_theme', theme);
+  }, [theme]);
 
   useEffect(() => {
     if (!authBundle) return;
@@ -2719,6 +2761,14 @@ export default function HomePage() {
             Temizle
           </button>
         )}
+        <button
+          type="button"
+          className="themeToggleBtn"
+          onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+          aria-label="Tema değiştir"
+        >
+          {theme === 'dark' ? '☀ Açık Mod' : '☾ Koyu Mod'}
+        </button>
       </div>
       {isNotificationOpen && (
         <section className="notificationPanel panel">
@@ -3151,6 +3201,39 @@ export default function HomePage() {
                   {ticket.title} ({STATUS_LABELS[ticket.status]})
                 </p>
               ))}
+            </div>
+            <div className="infoCard" style={{ overflowX: 'auto' }}>
+              <h3>Üye Bazlı Performans</h3>
+              {captainMemberStats.length === 0 ? (
+                <p className="muted">Gösterilecek üye yok.</p>
+              ) : (
+                <table className="metricsTable">
+                  <thead>
+                    <tr>
+                      <th>Üye</th>
+                      <th>Rol</th>
+                      <th>Toplam</th>
+                      <th>Aktif</th>
+                      <th>Tamamlanan</th>
+                      <th>Geciken</th>
+                      <th>Ort. Süre (gün)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {captainMemberStats.map(({ member, total, active, done, late, avgDays }) => (
+                      <tr key={member.id}>
+                        <td>{member.name}</td>
+                        <td className="muted">{member.role === 'RD_LEADER' ? 'AR-GE Lid.' : 'Üye'}</td>
+                        <td><strong>{total}</strong></td>
+                        <td>{active}</td>
+                        <td style={{ color: done > 0 ? 'var(--accent)' : undefined }}>{done}</td>
+                        <td style={{ color: late > 0 ? 'var(--danger)' : undefined }}>{late}</td>
+                        <td className="muted">{avgDays !== null ? avgDays.toFixed(1) : '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
             </motion.div>
           )}

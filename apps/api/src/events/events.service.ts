@@ -6,6 +6,7 @@ export type SsePayload =
   | { type: 'ticket:reviewed'; ticketId: string; ticketTitle: string; action: string; note?: string }
   | { type: 'comment:new'; ticketId: string; ticketTitle: string; authorName: string }
   | { type: 'announcement:new'; title: string }
+  | { type: 'ticket:deadline'; ticketId: string; ticketTitle: string; dueAt: string }
   | { type: 'ping' };
 
 @Injectable()

@@ -290,6 +290,34 @@ export class PasswordResetMailService {
     });
   }
 
+  async sendDeadlineReminderEmail(params: {
+    to: string;
+    name: string;
+    ticketTitle: string;
+    dueAt: Date;
+    portalUrl: string;
+  }) {
+    const dueStr = params.dueAt.toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' });
+    const content: EmailContent = {
+      subject: `Gorev teslim tarihi yaklasıyor: ${params.ticketTitle}`,
+      text: [
+        `Merhaba ${params.name},`,
+        '',
+        `"${params.ticketTitle}" gorevinin teslim tarihine 24 saatten az kaldi.`,
+        `Son teslim tarihi: ${dueStr}`,
+        '',
+        `Gorevi gormek icin: ${params.portalUrl}`,
+      ].join('\n'),
+      html: `
+        <p>Merhaba ${this.escapeHtml(params.name)},</p>
+        <p><strong>"${this.escapeHtml(params.ticketTitle)}"</strong> gorevinin teslim tarihine <strong>24 saatten az kaldi.</strong></p>
+        <p><strong>Son teslim tarihi:</strong> ${this.escapeHtml(dueStr)}</p>
+        <p><a href="${params.portalUrl}">Gorev panelini ac</a></p>
+      `,
+    };
+    await this.sendEmail({ to: params.to, content });
+  }
+
   async sendPasswordResetEmail(params: { to: string; name: string; resetUrl: string }) {
     const content = this.buildPasswordResetContent({ name: params.name, resetUrl: params.resetUrl });
     await this.sendEmail({ to: params.to, content });

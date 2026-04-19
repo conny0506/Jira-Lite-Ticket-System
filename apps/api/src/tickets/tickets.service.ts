@@ -277,7 +277,7 @@ export class TicketsService {
             submittedById: actorId,
             fileName: file.originalname,
             storageName: stored.storageName,
-            mimeType: file.mimetype,
+            mimeType: this.normalizeMimeType(this.extractExtension(file.originalname)),
             size: file.size,
             note: ['[CAPTAIN_FILE]', dto.attachmentNote?.trim() || null]
               .filter(Boolean)
@@ -341,7 +341,7 @@ export class TicketsService {
           submittedById: actorId,
           fileName: file.originalname,
           storageName: stored.storageName,
-          mimeType: file.mimetype,
+          mimeType: this.normalizeMimeType(this.extractExtension(file.originalname)),
           size: file.size,
           note: ['[CAPTAIN_FILE]', dto.attachmentNote?.trim() || null]
             .filter(Boolean)
@@ -672,7 +672,7 @@ export class TicketsService {
           submittedById: actorId,
           fileName: file.originalname,
           storageName: stored.storageName,
-          mimeType: file.mimetype,
+          mimeType: this.normalizeMimeType(this.extractExtension(file.originalname)),
           size: file.size,
           note: dto.note?.trim() ? dto.note.trim() : null,
           lateReason: lateReason && lateReason.length >= 3 ? lateReason : null,
@@ -748,7 +748,7 @@ export class TicketsService {
         submittedById: actorId,
         fileName: file.originalname,
         storageName: stored.storageName,
-        mimeType: file.mimetype,
+        mimeType: this.normalizeMimeType(this.extractExtension(file.originalname)),
         size: file.size,
         note: [
           '[CAPTAIN_FILE]',

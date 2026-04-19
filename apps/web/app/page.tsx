@@ -392,6 +392,7 @@ export default function HomePage() {
   const [introQuote, setIntroQuote] = useState(FALLBACK_QUOTES[0]);
   const [introTypedChars, setIntroTypedChars] = useState(0);
   const [memberTasksPulse, setMemberTasksPulse] = useState(false);
+  const [unseenAnnouncementCount, setUnseenAnnouncementCount] = useState(0);
   const [isBugReportOpen, setIsBugReportOpen] = useState(false);
   const [bugReportText, setBugReportText] = useState('');
   const [isBugReportSending, setIsBugReportSending] = useState(false);
@@ -425,6 +426,7 @@ export default function HomePage() {
   const introQuoteRef = useRef(introQuote);
   const sseRef = useRef<EventSource | null>(null);
   const docxContainerRef = useRef<HTMLDivElement | null>(null);
+  const memberTabRef = useRef<MemberTab>(memberTab);
 
   const currentUser = authBundle?.user ?? null;
   const isCaptain = currentUser?.role === 'CAPTAIN';
@@ -1038,6 +1040,9 @@ export default function HomePage() {
           showToast('success', `${payload.authorName} "${payload.ticketTitle}" gorevine yorum yapti`);
         } else if (payload.type === 'announcement:new') {
           showToast('success', `Yeni duyuru: ${payload.title}`);
+          if (memberTabRef.current !== 'announcements') {
+            setUnseenAnnouncementCount((c) => c + 1);
+          }
         }
       } catch {
         // malformed event — ignore
@@ -1363,6 +1368,10 @@ export default function HomePage() {
     }
     previousUnseenTaskCountRef.current = myUnseenTaskCount;
   }, [isMember, myUnseenTaskCount]);
+
+  useEffect(() => {
+    memberTabRef.current = memberTab;
+  }, [memberTab]);
 
   useEffect(() => {
     if (!authBundle) return;
@@ -2798,7 +2807,19 @@ export default function HomePage() {
                 </button>
                 <button type="button" className={memberTab === 'my_submissions' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('my_submissions')}><span>Teslimlerim</span>{memberTab === 'my_submissions' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
                 <button type="button" className={memberTab === 'timeline' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('timeline')}><span>Akis</span>{memberTab === 'timeline' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
-                <button type="button" className={memberTab === 'announcements' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('announcements')}><span>Duyurular</span>{memberTab === 'announcements' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                <button
+                  type="button"
+                  className={memberTab === 'announcements' ? 'tabBtn active' : 'tabBtn'}
+                  onClick={() => { setMemberTab('announcements'); setUnseenAnnouncementCount(0); }}
+                >
+                  <span>Duyurular</span>
+                  {unseenAnnouncementCount > 0 && (
+                    <b className="tabCountBadge hot">{unseenAnnouncementCount}</b>
+                  )}
+                  {memberTab === 'announcements' && (
+                    <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />
+                  )}
+                </button>
                 <button type="button" className={memberTab === 'my_leaves' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('my_leaves')}><span>Izin Taleplerim</span>{memberTab === 'my_leaves' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
                 <button type="button" className={memberTab === 'settings' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('settings')}><span>Ayarlar</span>{memberTab === 'settings' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
                 {isBoard && (

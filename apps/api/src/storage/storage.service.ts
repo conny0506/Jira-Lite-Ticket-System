@@ -37,7 +37,9 @@ export class StorageService {
       requestChecksumCalculation: 'WHEN_REQUIRED',
       responseChecksumValidation: 'WHEN_REQUIRED',
     });
-    // R2's S3 API rejects requests that include checksum headers in the signature
+    // Strip checksum headers BEFORE signing so they don't end up in the Authorization signature.
+    // R2 rejects requests where the signature covers checksum headers it doesn't recognize.
+    // priority:'high' ensures this runs before the awsAuthMiddleware (also high, but added earlier = inner).
     client.middlewareStack.add(
       (next) => async (args: any) => {
         const headers: Record<string, string> = args.request.headers;
@@ -47,7 +49,7 @@ export class StorageService {
         delete headers['x-amz-trailer'];
         return next(args);
       },
-      { step: 'finalizeRequest', name: 'stripR2IncompatibleHeaders', priority: 'low' },
+      { step: 'finalizeRequest', name: 'stripR2IncompatibleHeaders', priority: 'high' },
     );
     return client;
   }

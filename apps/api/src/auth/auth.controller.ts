@@ -31,7 +31,7 @@ export class AuthController {
     private readonly passwordResetMailService: PasswordResetMailService,
   ) {}
 
-  private getCookieOptions() {
+  private getCookieOptions(rememberMe = true) {
     const isProd = process.env.NODE_ENV === 'production';
     const sameSiteEnv = (process.env.COOKIE_SAME_SITE ?? (isProd ? 'none' : 'lax'))
       .toLowerCase()
@@ -54,7 +54,9 @@ export class AuthController {
       sameSite: sameSite as 'strict' | 'lax' | 'none',
       domain: cookieDomain || undefined,
       path: '/auth',
-      maxAge: Number(process.env.REFRESH_TOKEN_TTL_DAYS ?? 14) * 24 * 60 * 60 * 1000,
+      ...(rememberMe
+        ? { maxAge: Number(process.env.REFRESH_TOKEN_TTL_DAYS ?? 14) * 24 * 60 * 60 * 1000 }
+        : {}),
     };
   }
 
@@ -109,7 +111,7 @@ export class AuthController {
       ip: this.readClientIp(req),
       userAgent: req.headers?.['user-agent'] ?? '',
     });
-    res.cookie('jid', result.refreshToken, this.getCookieOptions());
+    res.cookie('jid', result.refreshToken, this.getCookieOptions(dto.rememberMe ?? false));
     return {
       accessToken: result.accessToken,
       accessTokenExpiresAt: result.accessTokenExpiresAt,
@@ -137,7 +139,7 @@ export class AuthController {
     const refreshToken = this.readRefreshToken(req, dto);
     if (!refreshToken) throw new UnauthorizedException('Yenileme anahtari zorunludur');
     const result = await this.authService.refresh(refreshToken);
-    res.cookie('jid', result.refreshToken, this.getCookieOptions());
+    res.cookie('jid', result.refreshToken, this.getCookieOptions(dto.rememberMe ?? false));
     return {
       accessToken: result.accessToken,
       accessTokenExpiresAt: result.accessTokenExpiresAt,

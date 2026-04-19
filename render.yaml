@@ -85,6 +85,8 @@ services:
         value: captain@ulgen.local
       - key: BOOTSTRAP_CAPTAIN_PASSWORD
         sync: false
+      - key: BUG_REPORT_EMAIL_TO
+        value: mustafa.din067@gmail.com
       - key: STORAGE_DRIVER
         value: s3
       - key: S3_BUCKET

@@ -9,7 +9,12 @@
       "WebSearch",
       "Bash(awk NR>=220 && NR<=230 {print \"Line \"NR\": \"$0} *)",
       "Bash(python3 *)",
-      "mcp__ide__getDiagnostics"
+      "mcp__ide__getDiagnostics",
+      "Bash(git -C \"C:\\\\Users\\\\musta\\\\Desktop\\\\Jira-lite Ticket Sistemi\" status)",
+      "Bash(git -C \"C:\\\\Users\\\\musta\\\\Desktop\\\\Jira-lite Ticket Sistemi\" diff)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)"
     ]
   }
 }

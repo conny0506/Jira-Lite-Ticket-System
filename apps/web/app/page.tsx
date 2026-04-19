@@ -419,6 +419,7 @@ export default function HomePage() {
   const toastIdRef = useRef(1);
   const previousUnseenTaskCountRef = useRef(0);
   const introQuoteRef = useRef(introQuote);
+  const sseRef = useRef<EventSource | null>(null);
 
   const currentUser = authBundle?.user ?? null;
   const isCaptain = currentUser?.role === 'CAPTAIN';
@@ -999,6 +1000,53 @@ export default function HomePage() {
     }, 2400);
     return () => clearTimeout(timer);
   }, [toastQueue]);
+
+  useEffect(() => {
+    if (!authBundle) {
+      sseRef.current?.close();
+      sseRef.current = null;
+      return;
+    }
+    sseRef.current?.close();
+    const es = new EventSource(
+      `${API_URL}/events/stream?token=${encodeURIComponent(authBundle.accessToken)}`,
+    );
+    sseRef.current = es;
+    es.onmessage = (e) => {
+      try {
+        const payload = JSON.parse(e.data as string) as {
+          type: string;
+          ticketTitle?: string;
+          action?: string;
+          note?: string;
+          authorName?: string;
+          title?: string;
+        };
+        if (payload.type === 'ping') return;
+        if (payload.type === 'ticket:reviewed') {
+          const label = payload.action === 'APPROVED' ? 'Onaylandi' : 'Reddedildi';
+          showToast(
+            payload.action === 'APPROVED' ? 'success' : 'error',
+            `"${payload.ticketTitle}" ${label}${payload.note ? `: ${payload.note}` : ''}`,
+          );
+        } else if (payload.type === 'comment:new') {
+          showToast('success', `${payload.authorName} "${payload.ticketTitle}" gorevine yorum yapti`);
+        } else if (payload.type === 'announcement:new') {
+          showToast('success', `Yeni duyuru: ${payload.title}`);
+        }
+      } catch {
+        // malformed event — ignore
+      }
+    };
+    es.onerror = () => {
+      // browser auto-reconnects; no action needed
+    };
+    return () => {
+      es.close();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authBundle?.accessToken]);
+
   function parseApiMessage(raw: unknown) {
     if (!raw) return '';
     if (typeof raw === 'string') return raw;

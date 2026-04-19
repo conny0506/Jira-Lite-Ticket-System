@@ -1229,6 +1229,14 @@ select[multiple] {
   flex: 1;
 }
 
+.previewDocx {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.5rem;
+  background: #fff;
+  color: #000;
+}
+
 .submissionRows {
   list-style: none;
   margin: 0;

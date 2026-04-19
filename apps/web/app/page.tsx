@@ -3550,6 +3550,57 @@ export default function HomePage() {
                         Gorevi Sil
                       </button>
                     </div>
+                    <div className="submissionBox">
+                      <button
+                        type="button"
+                        className="commentToggleBtn"
+                        onClick={() => toggleComments(ticket.id)}
+                      >
+                        {openCommentTicketId === ticket.id ? 'Yorumları Gizle' : `Yorumlar${ticketComments[ticket.id] ? ` (${ticketComments[ticket.id].length})` : ''}`}
+                      </button>
+                      {openCommentTicketId === ticket.id && (
+                        <div className="commentSection">
+                          {commentLoadingTicketId === ticket.id ? (
+                            <p className="muted">Yorumlar yükleniyor...</p>
+                          ) : (
+                            <>
+                              <div className="commentList">
+                                {(ticketComments[ticket.id] ?? []).map((c) => (
+                                  <div key={c.id} className="commentItem">
+                                    <div className="commentHeader">
+                                      <strong>{c.author.name}</strong>
+                                      <span className="muted">{new Date(c.createdAt).toLocaleString('tr-TR')}</span>
+                                    </div>
+                                    <p>{c.content}</p>
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="commentInput">
+                                <textarea
+                                  placeholder="Yorumunuzu yazın..."
+                                  value={commentDrafts[ticket.id] ?? ''}
+                                  onChange={(e) =>
+                                    setCommentDrafts((prev) => ({ ...prev, [ticket.id]: e.target.value }))
+                                  }
+                                  rows={2}
+                                  disabled={submittingCommentTicketId === ticket.id}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => submitComment(ticket.id)}
+                                  disabled={
+                                    submittingCommentTicketId === ticket.id ||
+                                    !(commentDrafts[ticket.id] ?? '').trim()
+                                  }
+                                >
+                                  {submittingCommentTicketId === ticket.id ? 'Gönderiliyor...' : 'Gönder'}
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </article>
                 ))}
                 {captainAssignableTickets.length === 0 && (
@@ -3749,6 +3800,57 @@ export default function HomePage() {
                                 ? 'Gonderiliyor...'
                                 : 'Dosya Gonder'}
                             </button>
+                          </div>
+                          <div className="submissionBox">
+                            <button
+                              type="button"
+                              className="commentToggleBtn"
+                              onClick={() => toggleComments(ticket.id)}
+                            >
+                              {openCommentTicketId === ticket.id ? 'Yorumları Gizle' : `Yorumlar${ticketComments[ticket.id] ? ` (${ticketComments[ticket.id].length})` : ''}`}
+                            </button>
+                            {openCommentTicketId === ticket.id && (
+                              <div className="commentSection">
+                                {commentLoadingTicketId === ticket.id ? (
+                                  <p className="muted">Yorumlar yükleniyor...</p>
+                                ) : (
+                                  <>
+                                    <div className="commentList">
+                                      {(ticketComments[ticket.id] ?? []).map((c) => (
+                                        <div key={c.id} className="commentItem">
+                                          <div className="commentHeader">
+                                            <strong>{c.author.name}</strong>
+                                            <span className="muted">{new Date(c.createdAt).toLocaleString('tr-TR')}</span>
+                                          </div>
+                                          <p>{c.content}</p>
+                                        </div>
+                                      ))}
+                                    </div>
+                                    <div className="commentInput">
+                                      <textarea
+                                        placeholder="Yorumunuzu yazın..."
+                                        value={commentDrafts[ticket.id] ?? ''}
+                                        onChange={(e) =>
+                                          setCommentDrafts((prev) => ({ ...prev, [ticket.id]: e.target.value }))
+                                        }
+                                        rows={2}
+                                        disabled={submittingCommentTicketId === ticket.id}
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => submitComment(ticket.id)}
+                                        disabled={
+                                          submittingCommentTicketId === ticket.id ||
+                                          !(commentDrafts[ticket.id] ?? '').trim()
+                                        }
+                                      >
+                                        {submittingCommentTicketId === ticket.id ? 'Gönderiliyor...' : 'Gönder'}
+                                      </button>
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            )}
                           </div>
                         </article>
                       );

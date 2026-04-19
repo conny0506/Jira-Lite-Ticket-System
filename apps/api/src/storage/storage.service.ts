@@ -32,6 +32,8 @@ export class StorageService {
                   secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
                 }
               : undefined,
+          requestChecksumCalculation: 'WHEN_REQUIRED',
+          responseChecksumValidation: 'WHEN_REQUIRED',
         })
       : null;
 

@@ -19,23 +19,38 @@ export class StorageService {
   private readonly signedUrlTtlSeconds = Number(
     process.env.S3_SIGNED_URL_TTL_SECONDS ?? 300,
   );
-  private readonly s3Client =
-    this.driver === 's3'
-      ? new S3Client({
-          region: this.s3Region,
-          endpoint: this.s3Endpoint || undefined,
-          forcePathStyle: (process.env.S3_FORCE_PATH_STYLE ?? 'false') === 'true',
-          credentials:
-            process.env.S3_ACCESS_KEY_ID && process.env.S3_SECRET_ACCESS_KEY
-              ? {
-                  accessKeyId: process.env.S3_ACCESS_KEY_ID,
-                  secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
-                }
-              : undefined,
-          requestChecksumCalculation: 'WHEN_REQUIRED',
-          responseChecksumValidation: 'WHEN_REQUIRED',
-        })
-      : null;
+  private readonly s3Client = this.createS3Client();
+
+  private createS3Client(): S3Client | null {
+    if (this.driver !== 's3') return null;
+    const client = new S3Client({
+      region: this.s3Region,
+      endpoint: this.s3Endpoint || undefined,
+      forcePathStyle: (process.env.S3_FORCE_PATH_STYLE ?? 'false') === 'true',
+      credentials:
+        process.env.S3_ACCESS_KEY_ID && process.env.S3_SECRET_ACCESS_KEY
+          ? {
+              accessKeyId: process.env.S3_ACCESS_KEY_ID,
+              secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
+            }
+          : undefined,
+      requestChecksumCalculation: 'WHEN_REQUIRED',
+      responseChecksumValidation: 'WHEN_REQUIRED',
+    });
+    // R2's S3 API rejects requests that include checksum headers in the signature
+    client.middlewareStack.add(
+      (next) => async (args: any) => {
+        const headers: Record<string, string> = args.request.headers;
+        delete headers['x-amz-checksum-crc32'];
+        delete headers['x-amz-checksum-sha256'];
+        delete headers['x-amz-sdk-checksum-algorithm'];
+        delete headers['x-amz-trailer'];
+        return next(args);
+      },
+      { step: 'finalizeRequest', name: 'stripR2IncompatibleHeaders', priority: 'low' },
+    );
+    return client;
+  }
 
   async storeSubmissionFile(file: {
     buffer: Buffer;

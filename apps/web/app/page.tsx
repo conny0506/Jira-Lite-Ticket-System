@@ -357,6 +357,8 @@ export default function HomePage() {
   const [bugReportText, setBugReportText] = useState('');
   const [isBugReportSending, setIsBugReportSending] = useState(false);
   const [bugReportError, setBugReportError] = useState('');
+  const [deleteConfirmSubmission, setDeleteConfirmSubmission] = useState<Submission | null>(null);
+  const [isDeletingSubmission, setIsDeletingSubmission] = useState(false);
   const toastIdRef = useRef(1);
   const previousUnseenTaskCountRef = useRef(0);
   const introQuoteRef = useRef(introQuote);
@@ -1448,7 +1450,7 @@ export default function HomePage() {
       }
       setBugReportText('');
       setIsBugReportOpen(false);
-      showToast('success', 'Hata raporu gonderildi.');
+      showToast('success', 'Hata raporunuz başarılı bir şekilde gönderildi.');
     } catch (error) {
       const message =
         error instanceof TypeError ? NETWORK_ERROR_MESSAGE : (error as Error).message;
@@ -2134,6 +2136,30 @@ export default function HomePage() {
       showToast('success', 'Dosya indiriliyor');
     } catch (e) {
       setError((e as Error).message);
+    }
+  }
+
+  function deleteSubmission(submission: Submission) {
+    setDeleteConfirmSubmission(submission);
+  }
+
+  async function confirmDeleteSubmission() {
+    if (!deleteConfirmSubmission) return;
+    setIsDeletingSubmission(true);
+    try {
+      await apiFetch(`/tickets/submissions/${deleteConfirmSubmission.id}`, 'DELETE');
+      setTickets((prev) =>
+        prev.map((t) => ({
+          ...t,
+          submissions: t.submissions.filter((s) => s.id !== deleteConfirmSubmission.id),
+        })),
+      );
+      setDeleteConfirmSubmission(null);
+      showToast('success', 'Teslim silindi.');
+    } catch (e) {
+      showToast('error', (e as Error).message);
+    } finally {
+      setIsDeletingSubmission(false);
     }
   }
 
@@ -3714,9 +3740,14 @@ export default function HomePage() {
                     </span>
                     <p>{ticket.title}</p>
                   </div>
-                  <button type="button" onClick={() => downloadSubmission(submission)}>
-                    İndir
-                  </button>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <button type="button" onClick={() => downloadSubmission(submission)}>
+                      İndir
+                    </button>
+                    <button type="button" className="dangerBtn" onClick={() => deleteSubmission(submission)}>
+                      Sil
+                    </button>
+                  </div>
                 </li>
               ))}
               </ul>
@@ -3759,6 +3790,37 @@ export default function HomePage() {
           />
         </svg>
       </button>
+      {deleteConfirmSubmission && (
+        <div className="bugModalBackdrop" role="dialog" aria-modal="true">
+          <section className="bugModal panel">
+            <h3>Teslimi Sil</h3>
+            <p className="muted">
+              <strong>"{deleteConfirmSubmission.fileName}"</strong> adlı teslim kalıcı olarak silinecek.
+            </p>
+            <p className="muted" style={{ marginTop: '0.5rem' }}>
+              Bu işlem <strong>geri alınamaz</strong> ve teslim <strong>herkes tarafından görülemez</strong> hale gelir.
+            </p>
+            <div className="bugModalActions" style={{ marginTop: '1.25rem' }}>
+              <button
+                type="button"
+                className="bugSecondaryBtn"
+                onClick={() => setDeleteConfirmSubmission(null)}
+                disabled={isDeletingSubmission}
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                className="dangerBtn"
+                onClick={confirmDeleteSubmission}
+                disabled={isDeletingSubmission}
+              >
+                {isDeletingSubmission ? 'Siliniyor...' : 'Evet, Sil'}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
       {isBugReportOpen && (
         <div className="bugModalBackdrop" role="dialog" aria-modal="true">
           <section className="bugModal panel">

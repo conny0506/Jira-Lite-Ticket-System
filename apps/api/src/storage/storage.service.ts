@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { randomUUID } from 'crypto';
 import { mkdir, writeFile } from 'fs/promises';
@@ -65,6 +65,18 @@ export class StorageService {
     const path = join(this.uploadDir, key);
     await writeFile(path, file.buffer);
     return { storageName: key };
+  }
+
+  async deleteFile(storageName: string): Promise<void> {
+    if (this.driver === 's3') {
+      if (!this.s3Client || !this.s3Bucket) return;
+      await this.s3Client.send(
+        new DeleteObjectCommand({ Bucket: this.s3Bucket, Key: storageName }),
+      );
+      return;
+    }
+    const { unlink } = await import('fs/promises');
+    await unlink(join(this.uploadDir, storageName)).catch(() => {});
   }
 
   async resolveDownloadTarget(

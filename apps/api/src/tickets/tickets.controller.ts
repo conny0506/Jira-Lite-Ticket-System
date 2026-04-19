@@ -166,6 +166,14 @@ export class TicketsController {
     return this.ticketsService.createCaptainFile(actorId, id, dto, file);
   }
 
+  @Delete('submissions/:submissionId')
+  deleteSubmission(
+    @CurrentUserId() actorId: string,
+    @Param('submissionId') submissionId: string,
+  ) {
+    return this.ticketsService.deleteSubmission(actorId, submissionId);
+  }
+
   @Get('submissions/:submissionId/download')
   async downloadSubmission(
     @CurrentUserId() actorId: string,

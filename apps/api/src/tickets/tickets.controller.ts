@@ -173,8 +173,14 @@ export class TicketsController {
     @Res() res: any,
   ) {
     const file = await this.ticketsService.getSubmissionFile(actorId, submissionId);
+
     if (file.mode === 'redirect') {
-      const upstream = await fetch(file.url);
+      let upstream: Response;
+      try {
+        upstream = await fetch(file.url);
+      } catch {
+        return res.status(502).send('Dosya sunucusuna ulasilamadi');
+      }
       if (!upstream.ok) {
         return res
           .status(upstream.status)
@@ -188,14 +194,31 @@ export class TicketsController {
         'Content-Disposition',
         `attachment; filename="${encodeURIComponent(file.fileName)}"`,
       );
-      Readable.fromWeb(upstream.body as any).pipe(res);
+      const remoteStream = Readable.fromWeb(upstream.body as any);
+      remoteStream.on('error', () => {
+        if (!res.headersSent) {
+          res.status(502).send('Dosya aktarimi basarisiz');
+        } else {
+          res.destroy();
+        }
+      });
+      remoteStream.pipe(res);
       return;
     }
+
+    const localStream = createReadStream(file.path);
+    localStream.on('error', () => {
+      if (!res.headersSent) {
+        res.status(500).send('Dosya okunamadi');
+      } else {
+        res.destroy();
+      }
+    });
     res.setHeader('Content-Type', file.mimeType);
     res.setHeader(
       'Content-Disposition',
       `attachment; filename="${encodeURIComponent(file.fileName)}"`,
     );
-    createReadStream(file.path).pipe(res);
+    localStream.pipe(res);
   }
 }

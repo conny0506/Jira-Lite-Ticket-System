@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { FormEvent, useState } from 'react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
-const FORGOT_PASSWORD_TIMEOUT_MS = 15000;
 const NETWORK_ERROR_MESSAGE =
   'Sunucuya ulasilamadi. Lutfen baglantiyi ve API adresini kontrol edin.';
 
@@ -60,25 +59,18 @@ export default function ForgotPasswordPage() {
 
     try {
       setSubmitting(true);
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), FORGOT_PASSWORD_TIMEOUT_MS);
       const res = await fetch(`${API_URL}/auth/forgot-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ email: normalizedEmail }),
-        signal: controller.signal,
       });
-      clearTimeout(timer);
       if (!res.ok) throw new Error(await extractErrorMessage(res));
       setSuccess(true);
       setEmail('');
     } catch (err) {
       const message =
-        err instanceof DOMException && err.name === 'AbortError'
-          ? 'Sifre sifirlama istegi zaman asimina ugradi. Lütfen tekrar deneyin.'
-          : err instanceof TypeError
-            ? NETWORK_ERROR_MESSAGE
-            : (err as Error).message;
+        err instanceof TypeError ? NETWORK_ERROR_MESSAGE : (err as Error).message;
       setError(message);
     } finally {
       setSubmitting(false);

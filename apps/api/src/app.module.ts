@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AnnouncementsModule } from './announcements/announcements.module';
 import { AuthModule } from './auth/auth.module';
 import { EventsModule } from './events/events.module';
@@ -10,6 +11,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { ProjectsModule } from './projects/projects.module';
 import { QuotesModule } from './quotes/quotes.module';
 import { QueueModule } from './queue/queue.module';
+import { SchedulerModule } from './scheduler/scheduler.module';
 import { StorageModule } from './storage/storage.module';
 import { TeamMembersModule } from './team-members/team-members.module';
 import { TicketsModule } from './tickets/tickets.module';
@@ -17,6 +19,7 @@ import { TicketsModule } from './tickets/tickets.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    ScheduleModule.forRoot(),
     AnnouncementsModule,
     AuthModule,
     EventsModule,
@@ -25,6 +28,7 @@ import { TicketsModule } from './tickets/tickets.module';
     PrismaModule,
     QuotesModule,
     QueueModule,
+    SchedulerModule,
     StorageModule,
     TeamMembersModule,
     ProjectsModule,

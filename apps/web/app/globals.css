@@ -9,6 +9,34 @@
   --accent: #00d1b6;
   --accent-2: #23a4ff;
   --danger: #ff6078;
+  --btn-text: #03111d;
+}
+
+[data-theme="light"] {
+  --bg: #edf1f8;
+  --bg-soft: #e2e8f4;
+  --panel: rgba(0, 0, 0, 0.045);
+  --panel-strong: rgba(0, 0, 0, 0.08);
+  --line: rgba(0, 0, 0, 0.13);
+  --text: #0d1b2e;
+  --muted: #4a6285;
+  --accent: #00a896;
+  --accent-2: #1a7fd4;
+  --danger: #d93050;
+  --btn-text: #ffffff;
+}
+
+[data-theme="light"] body {
+  background:
+    radial-gradient(1000px 380px at 8% -8%, rgba(35, 164, 255, 0.12), transparent 70%),
+    radial-gradient(900px 360px at 92% -10%, rgba(0, 209, 182, 0.10), transparent 72%),
+    linear-gradient(180deg, #edf1f8, #d8e4f2 56%, #cad6ea);
+}
+
+[data-theme="light"] body::before {
+  background:
+    radial-gradient(600px 220px at 22% 12%, rgba(35, 164, 255, 0.06), transparent 72%),
+    radial-gradient(650px 240px at 78% 18%, rgba(0, 209, 182, 0.05), transparent 72%);
 }
 
 * {
@@ -147,6 +175,27 @@ body::before {
   display: flex;
   gap: 8px;
   margin-bottom: 10px;
+  align-items: center;
+}
+
+.themeToggleBtn {
+  margin-left: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 6px 12px;
+  color: var(--text);
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: border-color 180ms ease, background 180ms ease;
+}
+
+.themeToggleBtn:hover {
+  border-color: var(--accent);
+  background: var(--panel-strong);
+  transform: none;
+  box-shadow: none;
+  filter: none;
 }
 
 .notifToggle,
@@ -665,7 +714,7 @@ textarea {
 
 button {
   background: linear-gradient(115deg, var(--accent), var(--accent-2));
-  color: #03111d;
+  color: var(--btn-text);
   font-weight: 700;
   cursor: pointer;
   transition: transform 120ms ease, box-shadow 180ms ease, filter 180ms ease;
@@ -811,6 +860,37 @@ button:disabled {
   border-bottom: 1px solid var(--line);
   text-align: left;
   padding: 8px;
+}
+
+.metricsTable {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+  font-size: 0.88rem;
+}
+
+.metricsTable th {
+  text-align: left;
+  padding: 6px 10px;
+  color: var(--muted);
+  font-weight: 600;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.metricsTable td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.metricsTable tbody tr:hover {
+  background: var(--panel-strong);
+}
+
+.metricsTable tbody tr:last-child td {
+  border-bottom: none;
 }
 
 .memberList {

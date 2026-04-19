@@ -71,7 +71,8 @@ model Ticket {
   dueAt       DateTime?
   status      TicketStatus       @default(TODO)
   priority    TicketPriority     @default(MEDIUM)
-  completedAt DateTime?
+  completedAt           DateTime?
+  deadlineNotifiedAt    DateTime?
   reviewNote  String?
   reviewedAt  DateTime?
   reviewedById String?

@@ -2147,7 +2147,7 @@ export default function HomePage() {
     if (!deleteConfirmSubmission) return;
     setIsDeletingSubmission(true);
     try {
-      await apiFetch(`/tickets/submissions/${deleteConfirmSubmission.id}`, 'DELETE');
+      await apiFetch(`/tickets/submissions/${deleteConfirmSubmission.id}`, { method: 'DELETE' });
       setTickets((prev) =>
         prev.map((t) => ({
           ...t,

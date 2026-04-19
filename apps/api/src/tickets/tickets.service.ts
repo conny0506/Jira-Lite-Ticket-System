@@ -24,6 +24,7 @@ import { UpdateTicketAssigneeDto } from './dto/update-ticket-assignee.dto';
 import { UpdateTicketStatusDto } from './dto/update-ticket-status.dto';
 import { MarkTicketsSeenDto } from './dto/mark-tickets-seen.dto';
 import { UploadCaptainFileDto } from './dto/upload-captain-file.dto';
+import { CreateCommentDto } from './dto/create-comment.dto';
 
 @Injectable()
 export class TicketsService {
@@ -1073,6 +1074,37 @@ export class TicketsService {
         }
       }),
     );
+  }
+
+  async listComments(actorId: string, ticketId: string) {
+    await this.assertTicketAccess(actorId, ticketId);
+    return this.prisma.comment.findMany({
+      where: { ticketId },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        content: true,
+        createdAt: true,
+        author: { select: { id: true, name: true, role: true } },
+      },
+    });
+  }
+
+  async createComment(actorId: string, ticketId: string, dto: CreateCommentDto) {
+    await this.assertTicketAccess(actorId, ticketId);
+    return this.prisma.comment.create({
+      data: {
+        ticketId,
+        authorId: actorId,
+        content: dto.content.trim(),
+      },
+      select: {
+        id: true,
+        content: true,
+        createdAt: true,
+        author: { select: { id: true, name: true, role: true } },
+      },
+    });
   }
 }
 

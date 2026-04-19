@@ -82,6 +82,7 @@ model Ticket {
   assignees   TicketAssignment[]
   submissions Submission[]
   reviews     TicketReview[]
+  comments    Comment[]
 }
 
 model TeamMember {
@@ -114,6 +115,7 @@ model TeamMember {
   announcements    Announcement[]
   leaves           Leave[]
   reviewedLeaves   Leave[]          @relation("LeaveReviewedBy")
+  comments         Comment[]
 
   @@index([passwordResetTokenHash])
 }
@@ -268,4 +270,17 @@ model Leave {
 
   @@index([memberId, createdAt])
   @@index([status])
+}
+
+model Comment {
+  id        String     @id @default(cuid())
+  ticketId  String
+  authorId  String
+  content   String
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  ticket    Ticket     @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author    TeamMember @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId, createdAt])
 }

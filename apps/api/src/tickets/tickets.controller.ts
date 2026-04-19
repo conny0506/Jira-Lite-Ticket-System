@@ -24,6 +24,7 @@ import { ReviewTicketDto } from './dto/review-ticket.dto';
 import { UpdateTicketStatusDto } from './dto/update-ticket-status.dto';
 import { MarkTicketsSeenDto } from './dto/mark-tickets-seen.dto';
 import { UploadCaptainFileDto } from './dto/upload-captain-file.dto';
+import { CreateCommentDto } from './dto/create-comment.dto';
 
 @Controller('tickets')
 export class TicketsController {
@@ -119,6 +120,20 @@ export class TicketsController {
   @Delete(':id')
   remove(@CurrentUserId() actorId: string, @Param('id') id: string) {
     return this.ticketsService.remove(actorId, id);
+  }
+
+  @Get(':id/comments')
+  listComments(@CurrentUserId() actorId: string, @Param('id') id: string) {
+    return this.ticketsService.listComments(actorId, id);
+  }
+
+  @Post(':id/comments')
+  createComment(
+    @CurrentUserId() actorId: string,
+    @Param('id') id: string,
+    @Body() dto: CreateCommentDto,
+  ) {
+    return this.ticketsService.createComment(actorId, id, dto);
   }
 
   @Get(':id/submissions')

@@ -124,6 +124,13 @@ type Leave = {
   member?: { id: string; name: string; role: TeamRole };
   reviewedBy?: { id: string; name: string } | null;
 };
+type Comment = {
+  id: string;
+  content: string;
+  createdAt: string;
+  author: { id: string; name: string; role: TeamRole };
+};
+
 type ToastItem = { id: number; type: 'success' | 'error'; message: string };
 type NotificationItem = ToastItem & { createdAt: string };
 type IntroStage = 'none' | 'terminal' | 'quote';
@@ -404,6 +411,11 @@ export default function HomePage() {
   const [leaveFieldError, setLeaveFieldError] = useState('');
   const [reviewingLeaveId, setReviewingLeaveId] = useState<string | null>(null);
   const [leaveReviewNote, setLeaveReviewNote] = useState('');
+  const [ticketComments, setTicketComments] = useState<Record<string, Comment[]>>({});
+  const [openCommentTicketId, setOpenCommentTicketId] = useState<string | null>(null);
+  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
+  const [commentLoadingTicketId, setCommentLoadingTicketId] = useState<string | null>(null);
+  const [submittingCommentTicketId, setSubmittingCommentTicketId] = useState<string | null>(null);
   const toastIdRef = useRef(1);
   const previousUnseenTaskCountRef = useRef(0);
   const introQuoteRef = useRef(introQuote);
@@ -2299,6 +2311,50 @@ export default function HomePage() {
     }
   }
 
+  async function loadComments(ticketId: string) {
+    setCommentLoadingTicketId(ticketId);
+    try {
+      const data = await apiFetch(`/tickets/${ticketId}/comments`);
+      setTicketComments((prev) => ({ ...prev, [ticketId]: data }));
+    } catch {
+      // silent — user sees empty state
+    } finally {
+      setCommentLoadingTicketId(null);
+    }
+  }
+
+  async function toggleComments(ticketId: string) {
+    if (openCommentTicketId === ticketId) {
+      setOpenCommentTicketId(null);
+      return;
+    }
+    setOpenCommentTicketId(ticketId);
+    if (!ticketComments[ticketId]) {
+      await loadComments(ticketId);
+    }
+  }
+
+  async function submitComment(ticketId: string) {
+    const content = (commentDrafts[ticketId] ?? '').trim();
+    if (!content || submittingCommentTicketId) return;
+    setSubmittingCommentTicketId(ticketId);
+    try {
+      const newComment = await apiFetch(`/tickets/${ticketId}/comments`, {
+        method: 'POST',
+        body: JSON.stringify({ content }),
+      });
+      setTicketComments((prev) => ({
+        ...prev,
+        [ticketId]: [...(prev[ticketId] ?? []), newComment],
+      }));
+      setCommentDrafts((prev) => ({ ...prev, [ticketId]: '' }));
+    } catch (e) {
+      showToast('error', (e as Error).message);
+    } finally {
+      setSubmittingCommentTicketId(null);
+    }
+  }
+
   if (!currentUser) {
     return (
       <main className="app">
@@ -3858,6 +3914,60 @@ export default function HomePage() {
                         <p className="muted">Yonetim kurulu bu alanda sadece goruntuleme yetkisine sahiptir.</p>
                       </div>
                     )}
+                    <div className="submissionBox">
+                      <button
+                        type="button"
+                        className="commentToggleBtn"
+                        onClick={() => toggleComments(ticket.id)}
+                      >
+                        {openCommentTicketId === ticket.id ? 'Yorumları Gizle' : `Yorumlar${ticketComments[ticket.id] ? ` (${ticketComments[ticket.id].length})` : ''}`}
+                      </button>
+                      {openCommentTicketId === ticket.id && (
+                        <div className="commentSection">
+                          {commentLoadingTicketId === ticket.id ? (
+                            <p className="muted">Yorumlar yükleniyor...</p>
+                          ) : (
+                            <>
+                              <div className="commentList">
+                                {(ticketComments[ticket.id] ?? []).length === 0 && (
+                                  <p className="muted">Henüz yorum yok.</p>
+                                )}
+                                {(ticketComments[ticket.id] ?? []).map((c) => (
+                                  <div key={c.id} className="commentItem">
+                                    <div className="commentHeader">
+                                      <strong>{c.author.name}</strong>
+                                      <span className="muted">{new Date(c.createdAt).toLocaleString('tr-TR')}</span>
+                                    </div>
+                                    <p>{c.content}</p>
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="commentInput">
+                                <textarea
+                                  placeholder="Yorumunuzu yazın..."
+                                  value={commentDrafts[ticket.id] ?? ''}
+                                  onChange={(e) =>
+                                    setCommentDrafts((prev) => ({ ...prev, [ticket.id]: e.target.value }))
+                                  }
+                                  rows={2}
+                                  disabled={submittingCommentTicketId === ticket.id}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => submitComment(ticket.id)}
+                                  disabled={
+                                    submittingCommentTicketId === ticket.id ||
+                                    !(commentDrafts[ticket.id] ?? '').trim()
+                                  }
+                                >
+                                  {submittingCommentTicketId === ticket.id ? 'Gönderiliyor...' : 'Gönder'}
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </article>
                 ))}
                 {myTickets.length === 0 && <p className="muted">Uzerinde calistigin gorev yok.</p>}

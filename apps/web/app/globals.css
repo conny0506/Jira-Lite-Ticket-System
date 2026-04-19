@@ -1077,6 +1077,89 @@ select[multiple] {
   color: #8be9ff;
 }
 
+.commentToggleBtn {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--fg-muted);
+  font-size: 0.82rem;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.commentToggleBtn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.commentSection {
+  display: grid;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.commentList {
+  display: grid;
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.commentItem {
+  background: var(--card-bg, rgba(255,255,255,0.04));
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: grid;
+  gap: 4px;
+}
+
+.commentHeader {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.commentHeader strong {
+  font-size: 0.85rem;
+}
+
+.commentHeader span {
+  font-size: 0.75rem;
+}
+
+.commentItem p {
+  margin: 0;
+  font-size: 0.88rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.commentInput {
+  display: grid;
+  gap: 6px;
+}
+
+.commentInput textarea {
+  resize: vertical;
+  min-height: 52px;
+  font-size: 0.88rem;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--input-bg, rgba(255,255,255,0.05));
+  color: inherit;
+  font-family: inherit;
+}
+
+.commentInput textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
 .submissionRows {
   list-style: none;
   margin: 0;

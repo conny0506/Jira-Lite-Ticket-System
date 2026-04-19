@@ -25,6 +25,7 @@ import { UpdateTicketStatusDto } from './dto/update-ticket-status.dto';
 import { MarkTicketsSeenDto } from './dto/mark-tickets-seen.dto';
 import { UploadCaptainFileDto } from './dto/upload-captain-file.dto';
 import { CreateCommentDto } from './dto/create-comment.dto';
+import { EventsService } from '../events/events.service';
 
 @Injectable()
 export class TicketsService {
@@ -40,6 +41,7 @@ export class TicketsService {
     private readonly authService: AuthService,
     private readonly mailService: PasswordResetMailService,
     private readonly storageService: StorageService,
+    private readonly eventsService: EventsService,
   ) {}
 
   async list(actorId: string, projectId?: string) {
@@ -531,16 +533,16 @@ export class TicketsService {
     const ticket = await this.prisma.ticket.findUnique({
       where: { id },
       include: {
-        submissions: {
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-        },
+        submissions: { orderBy: { createdAt: 'desc' }, take: 1 },
+        assignees: { select: { memberId: true } },
       },
     });
     if (!ticket) throw new NotFoundException('Gorev bulunamadi');
     if (ticket.submissions.length === 0) {
       throw new BadRequestException('Onay/ret icin once en az bir teslim olmalidir');
     }
+
+    const assigneeIds = ticket.assignees.map((a) => a.memberId);
 
     if (dto.action === TicketReviewAction.APPROVE) {
       const updated = await this.prisma.ticket.update({
@@ -560,9 +562,12 @@ export class TicketsService {
           action: PrismaTicketReviewAction.APPROVED,
         },
       });
-      await this.queueService.addTicketEvent({
+      await this.queueService.addTicketEvent({ ticketId: id, event: 'updated' });
+      this.eventsService.broadcast(assigneeIds, {
+        type: 'ticket:reviewed',
         ticketId: id,
-        event: 'updated',
+        ticketTitle: ticket.title,
+        action: 'APPROVED',
       });
       return { ok: true, action: dto.action, ticket: updated };
     }
@@ -589,9 +594,13 @@ export class TicketsService {
         reason,
       },
     });
-    await this.queueService.addTicketEvent({
+    await this.queueService.addTicketEvent({ ticketId: id, event: 'updated' });
+    this.eventsService.broadcast(assigneeIds, {
+      type: 'ticket:reviewed',
       ticketId: id,
-      event: 'updated',
+      ticketTitle: ticket.title,
+      action: 'REJECTED',
+      note: reason,
     });
     return { ok: true, action: dto.action, ticket: updated };
   }
@@ -1092,19 +1101,36 @@ export class TicketsService {
 
   async createComment(actorId: string, ticketId: string, dto: CreateCommentDto) {
     await this.assertTicketAccess(actorId, ticketId);
-    return this.prisma.comment.create({
-      data: {
+
+    const [comment, ticket] = await Promise.all([
+      this.prisma.comment.create({
+        data: { ticketId, authorId: actorId, content: dto.content.trim() },
+        select: {
+          id: true,
+          content: true,
+          createdAt: true,
+          author: { select: { id: true, name: true, role: true } },
+        },
+      }),
+      this.prisma.ticket.findUnique({
+        where: { id: ticketId },
+        select: { title: true, assignees: { select: { memberId: true } } },
+      }),
+    ]);
+
+    if (ticket) {
+      const recipientIds = ticket.assignees
+        .map((a) => a.memberId)
+        .filter((id) => id !== actorId);
+      this.eventsService.broadcast(recipientIds, {
+        type: 'comment:new',
         ticketId,
-        authorId: actorId,
-        content: dto.content.trim(),
-      },
-      select: {
-        id: true,
-        content: true,
-        createdAt: true,
-        author: { select: { id: true, name: true, role: true } },
-      },
-    });
+        ticketTitle: ticket.title,
+        authorName: comment.author.name,
+      });
+    }
+
+    return comment;
   }
 }
 

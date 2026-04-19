@@ -1,10 +1,14 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { EventsService } from '../events/events.service';
 import { CreateAnnouncementDto } from './dto/create-announcement.dto';
 
 @Injectable()
 export class AnnouncementsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly eventsService: EventsService,
+  ) {}
 
   async findAll() {
     return this.prisma.announcement.findMany({
@@ -22,7 +26,7 @@ export class AnnouncementsService {
   }
 
   async create(actorId: string, dto: CreateAnnouncementDto) {
-    return this.prisma.announcement.create({
+    const announcement = await this.prisma.announcement.create({
       data: {
         title: dto.title.trim(),
         content: dto.content.trim(),
@@ -37,6 +41,8 @@ export class AnnouncementsService {
         createdBy: { select: { id: true, name: true, role: true } },
       },
     });
+    this.eventsService.broadcastAll({ type: 'announcement:new', title: announcement.title });
+    return announcement;
   }
 
   async remove(actorId: string, id: string, actorRole: string) {

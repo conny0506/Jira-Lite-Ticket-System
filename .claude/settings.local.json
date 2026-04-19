@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(grep -n 'namespace $Enums\\\\|export.*$Enums' 'C:\\\\Users\\\\musta\\\\Desktop\\\\Jira-lite Ticket Sistemi\\\\node_modules\\\\.prisma\\\\client\\\\index.d.ts')",
+      "Bash(grep -B 5 -A 5 '$Enums\\\\.Department' 'C:\\\\Users\\\\musta\\\\Desktop\\\\Jira-lite Ticket Sistemi\\\\node_modules\\\\.prisma\\\\client\\\\index.d.ts')",
+      "Bash(grep -n '$executeRaw' '/c/Users/musta/Desktop/Jira-lite Ticket Sistemi/apps/api/src/meetings/meetings.service.ts' -B 5 -A 5)",
+      "Bash(grep -n '$queryRaw\\\\|$executeRaw' '/c/Users/musta/Desktop/Jira-lite Ticket Sistemi/apps/api/src/meetings/meetings.service.ts')",
+      "WebSearch",
+      "Bash(awk NR>=220 && NR<=230 {print \"Line \"NR\": \"$0} *)",
+      "Bash(python3 *)",
+      "mcp__ide__getDiagnostics"
+    ]
+  }
+}

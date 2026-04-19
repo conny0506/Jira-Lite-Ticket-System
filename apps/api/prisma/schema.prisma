@@ -26,6 +26,7 @@ enum TeamRole {
   MEMBER
   BOARD
   CAPTAIN
+  RD_LEADER
 }
 
 enum Department {

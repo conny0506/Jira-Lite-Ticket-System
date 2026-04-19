@@ -4,7 +4,7 @@ import { DragEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'reac
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import Link from 'next/link';
 
-type TeamRole = 'MEMBER' | 'BOARD' | 'CAPTAIN';
+type TeamRole = 'MEMBER' | 'BOARD' | 'CAPTAIN' | 'RD_LEADER';
 type Department = 'SOFTWARE' | 'INDUSTRIAL' | 'MECHANICAL' | 'ELECTRICAL_ELECTRONICS';
 type MeetingTargetMode = 'ALL' | 'SELECTED';
 type TicketStatus = 'TODO' | 'IN_PROGRESS' | 'IN_REVIEW' | 'DONE';
@@ -121,6 +121,7 @@ const ROLE_LABELS: Record<TeamRole, string> = {
   MEMBER: 'Üye',
   BOARD: 'Yönetim Kurulu',
   CAPTAIN: 'Kaptan',
+  RD_LEADER: 'AR-GE Lideri',
 };
 
 const PRIORITY_LABELS: Record<TicketPriority, string> = {
@@ -365,7 +366,7 @@ export default function HomePage() {
 
   const currentUser = authBundle?.user ?? null;
   const isCaptain = currentUser?.role === 'CAPTAIN';
-  const isMember = currentUser?.role === 'MEMBER';
+  const isMember = currentUser?.role === 'MEMBER' || currentUser?.role === 'RD_LEADER';
   const isBoard = currentUser?.role === 'BOARD';
   const systemProject = projects.find((p) => p.key === 'ULGEN-SYSTEM') ?? projects[0];
   const workspaceProjectCount = projects.filter(
@@ -1170,7 +1171,7 @@ export default function HomePage() {
       setMemberTab('home');
       setBoardAllTaskDepartmentFilter('ALL');
     }
-    if (currentUser.role === 'MEMBER') {
+    if (currentUser.role === 'MEMBER' || currentUser.role === 'RD_LEADER') {
       setMemberTab('home');
     }
   }, [currentUser]);
@@ -2759,7 +2760,8 @@ export default function HomePage() {
                 <p>
                   Kaptan {activeTeamMembers.filter((x) => x.role === 'CAPTAIN').length} | Kurul{' '}
                   {activeTeamMembers.filter((x) => x.role === 'BOARD').length} | Üye{' '}
-                  {activeTeamMembers.filter((x) => x.role === 'MEMBER').length}
+                  {activeTeamMembers.filter((x) => x.role === 'MEMBER').length} | AR-GE Lid.{' '}
+                  {activeTeamMembers.filter((x) => x.role === 'RD_LEADER').length}
                 </p>
               </article>
               <article className="infoCard">
@@ -2857,6 +2859,7 @@ export default function HomePage() {
                   <option value="CAPTAIN">Kaptan</option>
                   <option value="BOARD">Kurul</option>
                   <option value="MEMBER">Üye</option>
+                  <option value="RD_LEADER">AR-GE Lideri</option>
                 </select>
                 <select
                   value={teamDepartmentFilter}
@@ -2902,7 +2905,7 @@ export default function HomePage() {
                   required
                 />
                 <select value={memberRole} onChange={(e) => setMemberRole(e.target.value as TeamRole)}>
-                  {(['MEMBER', 'BOARD', 'CAPTAIN'] as TeamRole[]).map((role) => (
+                  {(['MEMBER', 'RD_LEADER', 'BOARD', 'CAPTAIN'] as TeamRole[]).map((role) => (
                     <option key={role} value={role}>
                       {ROLE_LABELS[role]}
                     </option>

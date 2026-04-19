@@ -394,7 +394,7 @@ export class TicketsService {
 
   async markSeen(actorId: string, dto: MarkTicketsSeenDto) {
     const actor = await this.authService.getActorOrThrow(actorId);
-    if (actor.role !== TeamRole.MEMBER) {
+    if (actor.role !== TeamRole.MEMBER && actor.role !== TeamRole.RD_LEADER) {
       return { ok: true, updatedCount: 0 };
     }
 

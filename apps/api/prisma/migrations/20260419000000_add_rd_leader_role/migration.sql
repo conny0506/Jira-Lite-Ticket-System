@@ -1,0 +1,1 @@
+ALTER TYPE "TeamRole" ADD VALUE 'RD_LEADER';

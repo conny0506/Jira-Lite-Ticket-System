@@ -411,6 +411,9 @@ export default function HomePage() {
   const [leaveFieldError, setLeaveFieldError] = useState('');
   const [reviewingLeaveId, setReviewingLeaveId] = useState<string | null>(null);
   const [leaveReviewNote, setLeaveReviewNote] = useState('');
+  const [previewSub, setPreviewSub] = useState<Submission | null>(null);
+  const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [ticketComments, setTicketComments] = useState<Record<string, Comment[]>>({});
   const [openCommentTicketId, setOpenCommentTicketId] = useState<string | null>(null);
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
@@ -2335,6 +2338,33 @@ export default function HomePage() {
     }
   }
 
+  async function openFilePreview(submission: Submission) {
+    if (!authBundle) return;
+    setPreviewSub(submission);
+    setPreviewBlobUrl(null);
+    setPreviewLoading(true);
+    try {
+      const res = await fetch(
+        `${API_URL}/tickets/submissions/${submission.id}/download`,
+        { headers: { Authorization: `Bearer ${authBundle.accessToken}` } },
+      );
+      if (!res.ok) throw new Error(await res.text());
+      const blob = await res.blob();
+      setPreviewBlobUrl(URL.createObjectURL(blob));
+    } catch (e) {
+      showToast('error', (e as Error).message);
+      setPreviewSub(null);
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
+  function closeFilePreview() {
+    if (previewBlobUrl) URL.revokeObjectURL(previewBlobUrl);
+    setPreviewBlobUrl(null);
+    setPreviewSub(null);
+  }
+
   function deleteSubmission(submission: Submission) {
     setDeleteConfirmSubmission(submission);
   }
@@ -3706,6 +3736,9 @@ export default function HomePage() {
                             </p>
                           </div>
                           <div className="archiveActions">
+                            <button type="button" onClick={() => openFilePreview(latestSubmission)}>
+                              Onizle
+                            </button>
                             <button type="button" onClick={() => downloadSubmission(latestSubmission)}>
                               Indir
                             </button>
@@ -3909,13 +3942,11 @@ export default function HomePage() {
                         {ticket.submissions
                           .filter((submission) => submission.submittedBy.role === 'CAPTAIN')
                           .map((submission) => (
-                            <button
-                              key={submission.id}
-                              type="button"
-                              onClick={() => downloadSubmission(submission)}
-                            >
-                              {submission.fileName}
-                            </button>
+                            <div key={submission.id} style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                              <span style={{ fontSize: '0.85rem' }}>{submission.fileName}</span>
+                              <button type="button" onClick={() => openFilePreview(submission)}>Önizle</button>
+                              <button type="button" onClick={() => downloadSubmission(submission)}>İndir</button>
+                            </div>
                           ))}
                       </div>
                     )}
@@ -4048,7 +4079,10 @@ export default function HomePage() {
                     </span>
                     <p>{ticket.title}</p>
                   </div>
-                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <button type="button" onClick={() => openFilePreview(submission)}>
+                      Önizle
+                    </button>
                     <button type="button" onClick={() => downloadSubmission(submission)}>
                       İndir
                     </button>
@@ -4279,6 +4313,33 @@ export default function HomePage() {
           />
         </svg>
       </button>
+      {previewSub && (
+        <div className="previewBackdrop" role="dialog" aria-modal="true" onClick={closeFilePreview}>
+          <section className="previewModal panel" onClick={(e) => e.stopPropagation()}>
+            <div className="previewHeader">
+              <span className="previewTitle">{previewSub.fileName}</span>
+              <button type="button" className="previewCloseBtn" onClick={closeFilePreview} aria-label="Kapat">✕</button>
+            </div>
+            <div className="previewBody">
+              {previewLoading && <p className="muted" style={{ textAlign: 'center', padding: '2rem' }}>Dosya yükleniyor...</p>}
+              {!previewLoading && previewBlobUrl && previewSub.fileName.toLowerCase().endsWith('.pdf') && (
+                <iframe
+                  src={previewBlobUrl}
+                  title={previewSub.fileName}
+                  className="previewFrame"
+                />
+              )}
+              {!previewLoading && previewBlobUrl && !previewSub.fileName.toLowerCase().endsWith('.pdf') && (
+                <div style={{ display: 'grid', gap: '1rem', placeItems: 'center', padding: '3rem 1rem' }}>
+                  <p className="muted">Bu dosya formatı ({previewSub.fileName.split('.').pop()?.toUpperCase()}) tarayıcıda önizlenemiyor.</p>
+                  <button type="button" onClick={() => downloadSubmission(previewSub)}>Dosyayı İndir</button>
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
+
       {deleteConfirmSubmission && (
         <div className="bugModalBackdrop" role="dialog" aria-modal="true">
           <section className="bugModal panel">

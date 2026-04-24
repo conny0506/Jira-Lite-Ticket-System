@@ -137,6 +137,73 @@ type NotificationItem = ToastItem & { createdAt: string };
 type IntroStage = 'none' | 'terminal' | 'quote';
 type QuoteApiResponse = { quote?: { id: string; text: string } | null };
 
+type CommentPanelProps = {
+  ticketId: string;
+  openCommentTicketId: string | null;
+  commentLoadingTicketId: string | null;
+  submittingCommentTicketId: string | null;
+  ticketComments: Record<string, Comment[]>;
+  commentDrafts: Record<string, string>;
+  onToggle: (id: string) => void;
+  onDraftChange: (id: string, value: string) => void;
+  onSubmit: (id: string) => void;
+};
+
+function CommentPanel({
+  ticketId, openCommentTicketId, commentLoadingTicketId, submittingCommentTicketId,
+  ticketComments, commentDrafts, onToggle, onDraftChange, onSubmit,
+}: CommentPanelProps) {
+  const isOpen = openCommentTicketId === ticketId;
+  const isLoading = commentLoadingTicketId === ticketId;
+  const isSubmitting = submittingCommentTicketId === ticketId;
+  const comments = ticketComments[ticketId] ?? [];
+  const draft = commentDrafts[ticketId] ?? '';
+  return (
+    <div className="submissionBox">
+      <button type="button" className="commentToggleBtn" onClick={() => onToggle(ticketId)}>
+        {isOpen ? 'Yorumları Gizle' : `Yorumlar${ticketComments[ticketId] ? ` (${comments.length})` : ''}`}
+      </button>
+      {isOpen && (
+        <div className="commentSection">
+          {isLoading ? (
+            <p className="muted">Yorumlar yükleniyor...</p>
+          ) : (
+            <>
+              <div className="commentList">
+                {comments.map((c) => (
+                  <div key={c.id} className="commentItem">
+                    <div className="commentHeader">
+                      <strong>{c.author.name}</strong>
+                      <span className="muted">{new Date(c.createdAt).toLocaleString('tr-TR')}</span>
+                    </div>
+                    <p>{c.content}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="commentInput">
+                <textarea
+                  placeholder="Yorumunuzu yazın..."
+                  value={draft}
+                  onChange={(e) => onDraftChange(ticketId, e.target.value)}
+                  rows={2}
+                  disabled={isSubmitting}
+                />
+                <button
+                  type="button"
+                  onClick={() => onSubmit(ticketId)}
+                  disabled={isSubmitting || !draft.trim()}
+                >
+                  {isSubmitting ? 'Gönderiliyor...' : 'Gönder'}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 const TYPEWRITER_CHARS_PER_SECOND = 120;
 const QUOTE_ROTATE_MS = 5000;
@@ -393,7 +460,10 @@ export default function HomePage() {
   const [introTypedChars, setIntroTypedChars] = useState(0);
   const [memberTasksPulse, setMemberTasksPulse] = useState(false);
   const [unseenAnnouncementCount, setUnseenAnnouncementCount] = useState(0);
-  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    if (typeof window === 'undefined') return 'dark';
+    return (localStorage.getItem('jira_theme') as 'dark' | 'light') ?? 'dark';
+  });
   const [isBugReportOpen, setIsBugReportOpen] = useState(false);
   const [bugReportText, setBugReportText] = useState('');
   const [isBugReportSending, setIsBugReportSending] = useState(false);
@@ -738,23 +808,29 @@ export default function HomePage() {
         const memberTickets = tickets.filter((t) =>
           t.assignees.some((a) => a.member.id === member.id),
         );
-        const done = memberTickets.filter((t) => t.status === 'DONE');
-        const active = memberTickets.filter((t) => t.status !== 'DONE');
-        const late = memberTickets.filter((t) => {
-          if (!t.dueAt) return false;
-          const dueMs = new Date(t.dueAt).getTime();
-          if (t.status === 'DONE' && t.completedAt) {
-            return new Date(t.completedAt).getTime() > dueMs;
+        let doneCount = 0, activeCount = 0, lateCount = 0;
+        let doneTimeSum = 0, doneTimeCount = 0;
+        for (const t of memberTickets) {
+          const isDone = t.status === 'DONE';
+          if (isDone) {
+            doneCount++;
+            if (t.completedAt && t.createdAt) {
+              doneTimeSum += (new Date(t.completedAt).getTime() - new Date(t.createdAt).getTime()) / 86_400_000;
+              doneTimeCount++;
+            }
+          } else {
+            activeCount++;
           }
-          return dueMs < nowMs;
-        });
-        const doneTimes = done
-          .filter((t) => !!t.completedAt && !!t.createdAt)
-          .map((t) => (new Date(t.completedAt as string).getTime() - new Date(t.createdAt as string).getTime()) / 86_400_000);
-        const avgDays = doneTimes.length > 0
-          ? doneTimes.reduce((s, v) => s + v, 0) / doneTimes.length
-          : null;
-        return { member, total: memberTickets.length, done: done.length, active: active.length, late: late.length, avgDays };
+          if (t.dueAt) {
+            const dueMs = new Date(t.dueAt).getTime();
+            const isLate = isDone && t.completedAt
+              ? new Date(t.completedAt).getTime() > dueMs
+              : dueMs < nowMs;
+            if (isLate) lateCount++;
+          }
+        }
+        const avgDays = doneTimeCount > 0 ? doneTimeSum / doneTimeCount : null;
+        return { member, total: memberTickets.length, done: doneCount, active: activeCount, late: lateCount, avgDays };
       })
       .sort((a, b) => b.total - a.total);
   }, [activeTeamMembers, tickets]);
@@ -1404,11 +1480,6 @@ export default function HomePage() {
   useEffect(() => {
     memberTabRef.current = memberTab;
   }, [memberTab]);
-
-  useEffect(() => {
-    const saved = localStorage.getItem('jira_theme') as 'dark' | 'light' | null;
-    if (saved === 'light') setTheme('light');
-  }, []);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme === 'light' ? 'light' : '';
@@ -3633,57 +3704,17 @@ export default function HomePage() {
                         Gorevi Sil
                       </button>
                     </div>
-                    <div className="submissionBox">
-                      <button
-                        type="button"
-                        className="commentToggleBtn"
-                        onClick={() => toggleComments(ticket.id)}
-                      >
-                        {openCommentTicketId === ticket.id ? 'Yorumları Gizle' : `Yorumlar${ticketComments[ticket.id] ? ` (${ticketComments[ticket.id].length})` : ''}`}
-                      </button>
-                      {openCommentTicketId === ticket.id && (
-                        <div className="commentSection">
-                          {commentLoadingTicketId === ticket.id ? (
-                            <p className="muted">Yorumlar yükleniyor...</p>
-                          ) : (
-                            <>
-                              <div className="commentList">
-                                {(ticketComments[ticket.id] ?? []).map((c) => (
-                                  <div key={c.id} className="commentItem">
-                                    <div className="commentHeader">
-                                      <strong>{c.author.name}</strong>
-                                      <span className="muted">{new Date(c.createdAt).toLocaleString('tr-TR')}</span>
-                                    </div>
-                                    <p>{c.content}</p>
-                                  </div>
-                                ))}
-                              </div>
-                              <div className="commentInput">
-                                <textarea
-                                  placeholder="Yorumunuzu yazın..."
-                                  value={commentDrafts[ticket.id] ?? ''}
-                                  onChange={(e) =>
-                                    setCommentDrafts((prev) => ({ ...prev, [ticket.id]: e.target.value }))
-                                  }
-                                  rows={2}
-                                  disabled={submittingCommentTicketId === ticket.id}
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => submitComment(ticket.id)}
-                                  disabled={
-                                    submittingCommentTicketId === ticket.id ||
-                                    !(commentDrafts[ticket.id] ?? '').trim()
-                                  }
-                                >
-                                  {submittingCommentTicketId === ticket.id ? 'Gönderiliyor...' : 'Gönder'}
-                                </button>
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </div>
+                    <CommentPanel
+                      ticketId={ticket.id}
+                      openCommentTicketId={openCommentTicketId}
+                      commentLoadingTicketId={commentLoadingTicketId}
+                      submittingCommentTicketId={submittingCommentTicketId}
+                      ticketComments={ticketComments}
+                      commentDrafts={commentDrafts}
+                      onToggle={toggleComments}
+                      onDraftChange={(id, val) => setCommentDrafts((prev) => ({ ...prev, [id]: val }))}
+                      onSubmit={submitComment}
+                    />
                   </article>
                 ))}
                 {captainAssignableTickets.length === 0 && (
@@ -3884,57 +3915,17 @@ export default function HomePage() {
                                 : 'Dosya Gonder'}
                             </button>
                           </div>
-                          <div className="submissionBox">
-                            <button
-                              type="button"
-                              className="commentToggleBtn"
-                              onClick={() => toggleComments(ticket.id)}
-                            >
-                              {openCommentTicketId === ticket.id ? 'Yorumları Gizle' : `Yorumlar${ticketComments[ticket.id] ? ` (${ticketComments[ticket.id].length})` : ''}`}
-                            </button>
-                            {openCommentTicketId === ticket.id && (
-                              <div className="commentSection">
-                                {commentLoadingTicketId === ticket.id ? (
-                                  <p className="muted">Yorumlar yükleniyor...</p>
-                                ) : (
-                                  <>
-                                    <div className="commentList">
-                                      {(ticketComments[ticket.id] ?? []).map((c) => (
-                                        <div key={c.id} className="commentItem">
-                                          <div className="commentHeader">
-                                            <strong>{c.author.name}</strong>
-                                            <span className="muted">{new Date(c.createdAt).toLocaleString('tr-TR')}</span>
-                                          </div>
-                                          <p>{c.content}</p>
-                                        </div>
-                                      ))}
-                                    </div>
-                                    <div className="commentInput">
-                                      <textarea
-                                        placeholder="Yorumunuzu yazın..."
-                                        value={commentDrafts[ticket.id] ?? ''}
-                                        onChange={(e) =>
-                                          setCommentDrafts((prev) => ({ ...prev, [ticket.id]: e.target.value }))
-                                        }
-                                        rows={2}
-                                        disabled={submittingCommentTicketId === ticket.id}
-                                      />
-                                      <button
-                                        type="button"
-                                        onClick={() => submitComment(ticket.id)}
-                                        disabled={
-                                          submittingCommentTicketId === ticket.id ||
-                                          !(commentDrafts[ticket.id] ?? '').trim()
-                                        }
-                                      >
-                                        {submittingCommentTicketId === ticket.id ? 'Gönderiliyor...' : 'Gönder'}
-                                      </button>
-                                    </div>
-                                  </>
-                                )}
-                              </div>
-                            )}
-                          </div>
+                          <CommentPanel
+                            ticketId={ticket.id}
+                            openCommentTicketId={openCommentTicketId}
+                            commentLoadingTicketId={commentLoadingTicketId}
+                            submittingCommentTicketId={submittingCommentTicketId}
+                            ticketComments={ticketComments}
+                            commentDrafts={commentDrafts}
+                            onToggle={toggleComments}
+                            onDraftChange={(id, val) => setCommentDrafts((prev) => ({ ...prev, [id]: val }))}
+                            onSubmit={submitComment}
+                          />
                         </article>
                       );
                     })}

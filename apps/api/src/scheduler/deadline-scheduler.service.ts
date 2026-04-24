@@ -17,8 +17,9 @@ export class DeadlineSchedulerService {
   @Cron(CronExpression.EVERY_HOUR)
   async checkDeadlines() {
     const now = new Date();
-    const in24h = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-    const in23h = new Date(now.getTime() + 23 * 60 * 60 * 1000);
+    const HOUR_MS = 60 * 60 * 1000;
+    const in23h = new Date(now.getTime() + 23 * HOUR_MS);
+    const in24h = new Date(now.getTime() + 24 * HOUR_MS);
 
     const tickets = await this.prisma.ticket.findMany({
       where: {
@@ -44,6 +45,7 @@ export class DeadlineSchedulerService {
       .split(',')
       .map((x) => x.trim())
       .find((x) => x.length > 0) ?? 'http://localhost:3000';
+    const baseUrl = portalBase.replace(/\/$/, '');
 
     for (const ticket of tickets) {
       const assigneeIds = ticket.assignees.map((a) => a.member.id);
@@ -54,28 +56,32 @@ export class DeadlineSchedulerService {
         dueAt: ticket.dueAt!.toISOString(),
       });
 
-      for (const { member } of ticket.assignees) {
-        try {
-          await this.mailService.sendDeadlineReminderEmail({
+      const results = await Promise.allSettled(
+        ticket.assignees.map(({ member }) =>
+          this.mailService.sendDeadlineReminderEmail({
             to: member.email,
             name: member.name,
             ticketTitle: ticket.title,
             dueAt: ticket.dueAt!,
-            portalUrl: `${portalBase.replace(/\/$/, '')}/?ticket=${encodeURIComponent(ticket.id)}`,
-          });
-        } catch (err) {
-          this.logger.warn(
-            `Deadline mail failed for ${member.email}: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
-      }
+            portalUrl: `${baseUrl}/?ticket=${encodeURIComponent(ticket.id)}`,
+          }),
+        ),
+      );
 
-      await this.prisma.ticket.update({
-        where: { id: ticket.id },
-        data: { deadlineNotifiedAt: now },
+      results.forEach((result, i) => {
+        if (result.status === 'rejected') {
+          const email = ticket.assignees[i].member.email;
+          const msg = result.reason instanceof Error ? result.reason.message : String(result.reason);
+          this.logger.warn(`Deadline mail failed for ${email}: ${msg}`);
+        }
       });
 
       this.logger.log(`Deadline reminder sent for ticket "${ticket.title}" (${assigneeIds.length} assignees)`);
     }
+
+    await this.prisma.ticket.updateMany({
+      where: { id: { in: tickets.map((t) => t.id) } },
+      data: { deadlineNotifiedAt: now },
+    });
   }
 }

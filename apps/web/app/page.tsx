@@ -4,6 +4,10 @@ import { DragEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'reac
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import Link from 'next/link';
 import type { Options as DocxPreviewOptions } from 'docx-preview';
+import { KanbanBoard } from './components/KanbanBoard';
+import { DashboardCharts } from './components/DashboardCharts';
+import { CalendarView } from './components/CalendarView';
+import { AuditLogFeed } from './components/AuditLogFeed';
 
 type TeamRole = 'MEMBER' | 'BOARD' | 'CAPTAIN' | 'RD_LEADER';
 type Department = 'SOFTWARE' | 'INDUSTRIAL' | 'MECHANICAL' | 'ELECTRICAL_ELECTRONICS';
@@ -38,6 +42,34 @@ type Submission = {
   submittedBy: Pick<TeamMember, 'id' | 'name' | 'role'>;
 };
 
+type CommentReaction = {
+  emoji: string;
+  member: { id: string; name: string };
+};
+
+type TicketDependency = {
+  dependsOn: { id: string; title: string; status: TicketStatus };
+};
+
+type TicketTemplate = {
+  id: string;
+  title: string;
+  description?: string | null;
+  priority: TicketPriority;
+  createdAt: string;
+  createdBy: { id: string; name: string };
+};
+
+type AuditLogEntry = {
+  id: string;
+  action: string;
+  entityType: string;
+  entityId: string;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+  actor: { id: string; name: string; role: TeamRole };
+};
+
 type Ticket = {
   id: string;
   projectId: string;
@@ -51,6 +83,7 @@ type Ticket = {
   reviewNote?: string | null;
   assignees: Array<{ member: TeamMember; seenAt?: string | null }>;
   submissions: Submission[];
+  dependencies?: TicketDependency[];
 };
 
 type UploadDraft = {
@@ -89,6 +122,9 @@ type CaptainTab =
   | 'overview'
   | 'team'
   | 'tasks'
+  | 'kanban'
+  | 'calendar'
+  | 'audit'
   | 'submissions'
   | 'announcements'
   | 'leaves'
@@ -98,6 +134,7 @@ type MemberTab =
   | 'my_tasks'
   | 'my_submissions'
   | 'timeline'
+  | 'calendar'
   | 'all_tasks'
   | 'announcements'
   | 'my_leaves'
@@ -130,12 +167,15 @@ type Comment = {
   content: string;
   createdAt: string;
   author: { id: string; name: string; role: TeamRole };
+  reactions?: CommentReaction[];
 };
 
 type ToastItem = { id: number; type: 'success' | 'error'; message: string };
 type NotificationItem = ToastItem & { createdAt: string };
 type IntroStage = 'none' | 'terminal' | 'quote';
 type QuoteApiResponse = { quote?: { id: string; text: string } | null };
+
+const REACTION_EMOJIS = ['👍', '❤️', '😂', '🔥', '👀', '✅'];
 
 type CommentPanelProps = {
   ticketId: string;
@@ -147,17 +187,49 @@ type CommentPanelProps = {
   onToggle: (id: string) => void;
   onDraftChange: (id: string, value: string) => void;
   onSubmit: (id: string) => void;
+  currentUserId?: string;
+  teamMembers?: Array<{ id: string; name: string }>;
+  onReact?: (commentId: string, emoji: string, hasReacted: boolean) => void;
 };
 
 function CommentPanel({
   ticketId, openCommentTicketId, commentLoadingTicketId, submittingCommentTicketId,
   ticketComments, commentDrafts, onToggle, onDraftChange, onSubmit,
+  currentUserId, teamMembers = [], onReact,
 }: CommentPanelProps) {
   const isOpen = openCommentTicketId === ticketId;
   const isLoading = commentLoadingTicketId === ticketId;
   const isSubmitting = submittingCommentTicketId === ticketId;
   const comments = ticketComments[ticketId] ?? [];
   const draft = commentDrafts[ticketId] ?? '';
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const [mentionFilter, setMentionFilter] = useState('');
+
+  const handleDraftChange = (val: string) => {
+    onDraftChange(ticketId, val);
+    const atIdx = val.lastIndexOf('@');
+    if (atIdx >= 0 && atIdx === val.length - 1) {
+      setMentionOpen(true);
+      setMentionFilter('');
+    } else if (atIdx >= 0 && val.slice(atIdx + 1).match(/^[\wÀ-ž\s]{0,20}$/)) {
+      setMentionOpen(true);
+      setMentionFilter(val.slice(atIdx + 1).toLowerCase());
+    } else {
+      setMentionOpen(false);
+    }
+  };
+
+  const insertMention = (name: string) => {
+    const atIdx = draft.lastIndexOf('@');
+    const newDraft = draft.slice(0, atIdx) + `@${name} `;
+    onDraftChange(ticketId, newDraft);
+    setMentionOpen(false);
+  };
+
+  const filteredMembers = teamMembers.filter((m) =>
+    mentionFilter ? m.name.toLowerCase().includes(mentionFilter) : true,
+  ).slice(0, 6);
+
   return (
     <div className="submissionBox">
       <button type="button" className="commentToggleBtn" onClick={() => onToggle(ticketId)}>
@@ -170,27 +242,75 @@ function CommentPanel({
           ) : (
             <>
               <div className="commentList">
-                {comments.map((c) => (
-                  <div key={c.id} className="commentItem">
-                    <div className="commentHeader">
-                      <strong>{c.author.name}</strong>
-                      <span className="muted">{new Date(c.createdAt).toLocaleString('tr-TR')}</span>
+                {comments.map((c) => {
+                  const reactionMap: Record<string, Array<{ id: string; name: string }>> = {};
+                  for (const r of c.reactions ?? []) {
+                    if (!reactionMap[r.emoji]) reactionMap[r.emoji] = [];
+                    reactionMap[r.emoji].push(r.member);
+                  }
+                  return (
+                    <div key={c.id} className="commentItem">
+                      <div className="commentHeader">
+                        <strong>{c.author.name}</strong>
+                        <span className="muted">{new Date(c.createdAt).toLocaleString('tr-TR')}</span>
+                      </div>
+                      <p>{c.content}</p>
+                      {onReact && (
+                        <div className="reactionBar">
+                          {Object.entries(reactionMap).map(([emoji, members]) => {
+                            const hasReacted = members.some((m) => m.id === currentUserId);
+                            return (
+                              <button
+                                key={emoji}
+                                type="button"
+                                className={`reactionBtn${hasReacted ? ' reacted' : ''}`}
+                                title={members.map((m) => m.name).join(', ')}
+                                onClick={() => onReact(c.id, emoji, hasReacted)}
+                              >
+                                {emoji} <span>{members.length}</span>
+                              </button>
+                            );
+                          })}
+                          <div className="reactionPicker">
+                            <button type="button" className="reactionAddBtn" title="Tepki ekle">+😀</button>
+                            <div className="reactionPickerDropdown">
+                              {REACTION_EMOJIS.map((emoji) => (
+                                <button
+                                  key={emoji}
+                                  type="button"
+                                  onClick={() => onReact(c.id, emoji, !!(reactionMap[emoji]?.some((m) => m.id === currentUserId)))}
+                                >
+                                  {emoji}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    <p>{c.content}</p>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
-              <div className="commentInput">
+              <div className="commentInput" style={{ position: 'relative' }}>
                 <textarea
-                  placeholder="Yorumunuzu yazın..."
+                  placeholder="Yorumunuzu yazın... (@isim ile mention yapabilirsiniz)"
                   value={draft}
-                  onChange={(e) => onDraftChange(ticketId, e.target.value)}
+                  onChange={(e) => handleDraftChange(e.target.value)}
                   rows={2}
                   disabled={isSubmitting}
                 />
+                {mentionOpen && filteredMembers.length > 0 && (
+                  <div className="mentionDropdown">
+                    {filteredMembers.map((m) => (
+                      <button key={m.id} type="button" className="mentionItem" onClick={() => insertMention(m.name)}>
+                        @{m.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <button
                   type="button"
-                  onClick={() => onSubmit(ticketId)}
+                  onClick={() => { onSubmit(ticketId); setMentionOpen(false); }}
                   disabled={isSubmitting || !draft.trim()}
                 >
                   {isSubmitting ? 'Gönderiliyor...' : 'Gönder'}
@@ -492,6 +612,16 @@ export default function HomePage() {
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
   const [commentLoadingTicketId, setCommentLoadingTicketId] = useState<string | null>(null);
   const [submittingCommentTicketId, setSubmittingCommentTicketId] = useState<string | null>(null);
+  const [templates, setTemplates] = useState<TicketTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
+  const [ticketDependencyIds, setTicketDependencyIds] = useState<string[]>([]);
+  const [ticketSaveAsTemplate, setTicketSaveAsTemplate] = useState(false);
+  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
+  const [auditTotal, setAuditTotal] = useState(0);
+  const [auditPage, setAuditPage] = useState(1);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionTicketId, setMentionTicketId] = useState<string | null>(null);
   const toastIdRef = useRef(1);
   const previousUnseenTaskCountRef = useRef(0);
   const introQuoteRef = useRef(introQuote);
@@ -1306,17 +1436,33 @@ export default function HomePage() {
     setIntroQuote(nextQuote);
   }
 
+  async function loadAuditLogs(page: number) {
+    setAuditLoading(true);
+    try {
+      const data = await apiFetch(`/audit-logs?page=${page}&pageSize=20`);
+      setAuditLogs(data.logs as AuditLogEntry[]);
+      setAuditTotal(data.total as number);
+      setAuditPage(page);
+    } catch {
+      /* silent */
+    } finally {
+      setAuditLoading(false);
+    }
+  }
+
   async function loadAll() {
     if (!currentUser) return;
     const isCaptainUser = currentUser.role === 'CAPTAIN';
-    const [projectData, memberData, ticketData, meetingData, announcementData, leaveData] = await Promise.all([
+    const [projectData, memberData, ticketData, meetingData, announcementData, leaveData, templateData] = await Promise.all([
       apiFetch('/projects'),
       apiFetch('/team-members'),
       apiFetch('/tickets'),
       apiFetch('/meetings/current'),
       apiFetch('/announcements'),
       isCaptainUser ? apiFetch('/leaves') : apiFetch('/leaves/mine'),
+      apiFetch('/templates'),
     ]);
+    setTemplates(templateData as TicketTemplate[]);
     setProjects(projectData);
     setTeamMembers(memberData);
     setTickets(ticketData);
@@ -2058,10 +2204,31 @@ export default function HomePage() {
 
     try {
       setIsCreatingTicket(true);
-      await apiFetch('/tickets', {
+      const created = await apiFetch('/tickets', {
         method: 'POST',
         body: buildCreateTicketFormData(draft),
-      });
+      }) as { id: string } | undefined;
+
+      if (created?.id && ticketDependencyIds.length > 0) {
+        await Promise.allSettled(
+          ticketDependencyIds.map((depId) =>
+            apiFetch(`/tickets/${created.id}/dependencies`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ dependsOnId: depId }),
+            }),
+          ),
+        );
+      }
+
+      if (ticketSaveAsTemplate && ticketTitle.trim()) {
+        void apiFetch('/templates', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: ticketTitle.trim(), description: ticketDesc || undefined, priority: ticketPriority }),
+        });
+      }
+
       setTicketTitle('');
       setTicketDesc('');
       setTicketPriority('MEDIUM');
@@ -2073,6 +2240,9 @@ export default function HomePage() {
       setTicketManualAssigneeIds(['', '']);
       setTicketAttachmentFile(null);
       setTicketAttachmentNote('');
+      setTicketDependencyIds([]);
+      setSelectedTemplateId('');
+      setTicketSaveAsTemplate(false);
       await loadAll();
       showToast('success', 'Gorev olusturuldu');
     } catch (e) {
@@ -2575,6 +2745,27 @@ export default function HomePage() {
     }
   }
 
+  async function handleReaction(commentId: string, emoji: string, hasReacted: boolean) {
+    const ticketId = Object.keys(ticketComments).find((tid) =>
+      ticketComments[tid]?.some((c) => c.id === commentId),
+    );
+    if (!ticketId) return;
+    try {
+      if (hasReacted) {
+        await apiFetch(`/tickets/${ticketId}/comments/${commentId}/reactions/${encodeURIComponent(emoji)}`, { method: 'DELETE' });
+      } else {
+        await apiFetch(`/tickets/${ticketId}/comments/${commentId}/reactions`, {
+          method: 'POST',
+          body: JSON.stringify({ emoji }),
+        });
+      }
+      const updated = await apiFetch(`/tickets/${ticketId}/comments`);
+      setTicketComments((prev) => ({ ...prev, [ticketId]: updated }));
+    } catch (e) {
+      showToast('error', (e as Error).message);
+    }
+  }
+
   if (!currentUser) {
     return (
       <main className="app">
@@ -2892,6 +3083,9 @@ export default function HomePage() {
                 <button type="button" className={captainTab === 'overview' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('overview')}><span>Genel</span>{captainTab === 'overview' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
                 <button type="button" className={captainTab === 'team' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('team')}><span>Takim</span>{captainTab === 'team' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
                 <button type="button" className={captainTab === 'tasks' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('tasks')}><span>Gorevler</span>{captainTab === 'tasks' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                <button type="button" className={captainTab === 'kanban' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('kanban')}><span>Kanban</span>{captainTab === 'kanban' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                <button type="button" className={captainTab === 'calendar' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('calendar')}><span>Takvim</span>{captainTab === 'calendar' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                <button type="button" className={captainTab === 'audit' ? 'tabBtn active' : 'tabBtn'} onClick={() => { setCaptainTab('audit'); loadAuditLogs(1); }}><span>Aktivite</span>{captainTab === 'audit' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
                 <button type="button" className={captainTab === 'submissions' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('submissions')}><span>Kisi Sayfalari</span>{captainTab === 'submissions' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
                 <button type="button" className={captainTab === 'announcements' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('announcements')}><span>Duyurular</span>{captainTab === 'announcements' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
                 <button type="button" className={captainTab === 'leaves' ? 'tabBtn active' : 'tabBtn'} onClick={() => setCaptainTab('leaves')}><span>Izin Talepleri</span>{captainTab === 'leaves' && <motion.i className="tabIndicator" layoutId="captainTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
@@ -2928,6 +3122,7 @@ export default function HomePage() {
                 </button>
                 <button type="button" className={memberTab === 'my_submissions' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('my_submissions')}><span>Teslimlerim</span>{memberTab === 'my_submissions' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
                 <button type="button" className={memberTab === 'timeline' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('timeline')}><span>Akis</span>{memberTab === 'timeline' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                <button type="button" className={memberTab === 'calendar' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('calendar')}><span>Takvim</span>{memberTab === 'calendar' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
                 <button
                   type="button"
                   className={memberTab === 'announcements' ? 'tabBtn active' : 'tabBtn'}
@@ -3306,6 +3501,91 @@ export default function HomePage() {
                 </table>
               )}
             </div>
+            <div className="infoCard" style={{ marginTop: 16 }}>
+              <h3>Grafiksel Özet</h3>
+              <DashboardCharts tickets={tickets} />
+            </div>
+            </motion.div>
+          )}
+
+          {!loading && isCaptain && captainTab === 'kanban' && (
+            <motion.div
+              key="captain-kanban"
+              className="tabScene"
+              initial={{ opacity: 0, y: 10, scale: 0.99 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.99 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+            >
+              <h2 style={{ marginBottom: 16 }}>Kanban Board</h2>
+              <KanbanBoard
+                tickets={tickets}
+                onStatusChange={async (ticketId, status) => {
+                  try {
+                    await apiFetch(`/tickets/${ticketId}/status`, {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ status }),
+                    });
+                    setTickets((prev) =>
+                      prev.map((t) =>
+                        t.id === ticketId
+                          ? { ...t, status, completedAt: status === 'DONE' ? new Date().toISOString() : t.completedAt }
+                          : t,
+                      ),
+                    );
+                  } catch {
+                    showToast('error', 'Durum güncellenemedi');
+                  }
+                }}
+              />
+            </motion.div>
+          )}
+
+          {!loading && isCaptain && captainTab === 'calendar' && (
+            <motion.div
+              key="captain-calendar"
+              className="tabScene"
+              initial={{ opacity: 0, y: 10, scale: 0.99 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.99 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+            >
+              <h2 style={{ marginBottom: 16 }}>Takvim</h2>
+              <CalendarView
+                events={[
+                  ...tickets
+                    .filter((t) => t.dueAt && t.status !== 'DONE')
+                    .map((t) => ({ date: t.dueAt!, type: 'deadline' as const, label: t.title, id: `ticket-${t.id}` })),
+                  ...(meeting && !meeting.reminderSentAt
+                    ? [{ date: meeting.scheduledAt, type: 'meeting' as const, label: meeting.meetingUrl ? 'Toplantı' : 'Toplantı', id: `meeting-${meeting.id}` }]
+                    : []),
+                  ...leaves
+                    .filter((l) => l.status === 'APPROVED')
+                    .map((l) => ({ date: l.startDate, type: 'leave' as const, label: l.member?.name ?? 'İzin', id: `leave-${l.id}` })),
+                ]}
+              />
+            </motion.div>
+          )}
+
+          {!loading && isCaptain && captainTab === 'audit' && (
+            <motion.div
+              key="captain-audit"
+              className="tabScene"
+              initial={{ opacity: 0, y: 10, scale: 0.99 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.99 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+            >
+              <h2 style={{ marginBottom: 16 }}>Aktivite Logu</h2>
+              <AuditLogFeed
+                logs={auditLogs}
+                total={auditTotal}
+                page={auditPage}
+                pageSize={20}
+                loading={auditLoading}
+                onPageChange={(page) => loadAuditLogs(page)}
+              />
             </motion.div>
           )}
 
@@ -3497,16 +3777,40 @@ export default function HomePage() {
               </div>
 
               <form onSubmit={createTicket} className="ticketForm">
+                {templates.length > 0 && (
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4 }}>
+                    <select
+                      value={selectedTemplateId}
+                      onChange={(e) => {
+                        const tid = e.target.value;
+                        setSelectedTemplateId(tid);
+                        const tpl = templates.find((t) => t.id === tid);
+                        if (tpl) {
+                          setTicketTitle(tpl.title);
+                          setTicketDesc(tpl.description ?? '');
+                          setTicketPriority(tpl.priority);
+                        }
+                      }}
+                      style={{ flex: 1 }}
+                    >
+                      <option value="">Şablondan yükle...</option>
+                      {templates.map((t) => (
+                        <option key={t.id} value={t.id}>{t.title}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <input
                   placeholder="Gorev basligi"
                   value={ticketTitle}
                   onChange={(e) => {
                     setTicketTitle(e.target.value);
                     setTicketFieldError('');
+                    setSelectedTemplateId('');
                   }}
                   required
                 />
-                <textarea placeholder="Aciklama" value={ticketDesc} onChange={(e) => setTicketDesc(e.target.value)} />
+                <textarea placeholder="Aciklama" value={ticketDesc} onChange={(e) => { setTicketDesc(e.target.value); setSelectedTemplateId(''); }} />
                 <input
                   type="datetime-local"
                   value={ticketDueAt}
@@ -3654,6 +3958,35 @@ export default function HomePage() {
                   value={ticketAttachmentNote}
                   onChange={(e) => setTicketAttachmentNote(e.target.value)}
                 />
+                <div style={{ marginBottom: 8 }}>
+                  <label style={{ fontSize: 13, color: 'var(--muted)' }}>Bağımlılıklar (önce tamamlanması gerekenler):</label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
+                    {tickets.filter((t) => t.status !== 'DONE').map((t) => (
+                      <label key={t.id} style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <input
+                          type="checkbox"
+                          checked={ticketDependencyIds.includes(t.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) setTicketDependencyIds((prev) => [...prev, t.id]);
+                            else setTicketDependencyIds((prev) => prev.filter((id) => id !== t.id));
+                          }}
+                        />
+                        {t.title}
+                      </label>
+                    ))}
+                    {tickets.filter((t) => t.status !== 'DONE').length === 0 && (
+                      <span style={{ color: 'var(--muted)', fontSize: 12 }}>Bağımlılık eklenebilecek görev yok</span>
+                    )}
+                  </div>
+                </div>
+                <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6, color: 'var(--muted)' }}>
+                  <input
+                    type="checkbox"
+                    checked={ticketSaveAsTemplate}
+                    onChange={(e) => setTicketSaveAsTemplate(e.target.checked)}
+                  />
+                  Bu görevi şablon olarak kaydet
+                </label>
                 {ticketFieldError && <p className="fieldError">{ticketFieldError}</p>}
                 <button type="submit" disabled={isCreatingTicket}>
                   {isCreatingTicket ? 'Olusturuluyor...' : 'Gorev Olustur'}
@@ -3704,6 +4037,12 @@ export default function HomePage() {
                         Gorevi Sil
                       </button>
                     </div>
+                    {ticket.dependencies && ticket.dependencies.some((d) => d.dependsOn.status !== 'DONE') && (
+                      <div style={{ background: 'rgba(240,180,41,0.12)', border: '1px solid #f0b429', borderRadius: 6, padding: '4px 8px', fontSize: 12, color: '#f0b429', marginBottom: 6 }}>
+                        ⛓️ Tamamlanmamış bağımlılık:{' '}
+                        {ticket.dependencies.filter((d) => d.dependsOn.status !== 'DONE').map((d) => d.dependsOn.title).join(', ')}
+                      </div>
+                    )}
                     <CommentPanel
                       ticketId={ticket.id}
                       openCommentTicketId={openCommentTicketId}
@@ -3714,6 +4053,9 @@ export default function HomePage() {
                       onToggle={toggleComments}
                       onDraftChange={(id, val) => setCommentDrafts((prev) => ({ ...prev, [id]: val }))}
                       onSubmit={submitComment}
+                      currentUserId={currentUser?.id}
+                      teamMembers={activeTeamMembers}
+                      onReact={handleReaction}
                     />
                   </article>
                 ))}
@@ -3925,6 +4267,9 @@ export default function HomePage() {
                             onToggle={toggleComments}
                             onDraftChange={(id, val) => setCommentDrafts((prev) => ({ ...prev, [id]: val }))}
                             onSubmit={submitComment}
+                            currentUserId={currentUser?.id}
+                            teamMembers={activeTeamMembers}
+                            onReact={handleReaction}
                           />
                         </article>
                       );
@@ -4150,6 +4495,12 @@ export default function HomePage() {
                       <span>{PRIORITY_LABELS[ticket.priority]}</span>
                       <span>{STATUS_LABELS[ticket.status]}</span>
                     </div>
+                    {ticket.dependencies && ticket.dependencies.some((d) => d.dependsOn.status !== 'DONE') && (
+                      <div style={{ background: 'rgba(240,180,41,0.12)', border: '1px solid #f0b429', borderRadius: 6, padding: '4px 8px', fontSize: 12, color: '#f0b429', marginBottom: 6 }}>
+                        ⛓️ Tamamlanmamış bağımlılık:{' '}
+                        {ticket.dependencies.filter((d) => d.dependsOn.status !== 'DONE').map((d) => d.dependsOn.title).join(', ')}
+                      </div>
+                    )}
                     {ticket.reviewNote && (
                       <p className="fieldError">Teslim ret sebebi: {ticket.reviewNote}</p>
                     )}
@@ -4210,60 +4561,20 @@ export default function HomePage() {
                         <p className="muted">Yonetim kurulu bu alanda sadece goruntuleme yetkisine sahiptir.</p>
                       </div>
                     )}
-                    <div className="submissionBox">
-                      <button
-                        type="button"
-                        className="commentToggleBtn"
-                        onClick={() => toggleComments(ticket.id)}
-                      >
-                        {openCommentTicketId === ticket.id ? 'Yorumları Gizle' : `Yorumlar${ticketComments[ticket.id] ? ` (${ticketComments[ticket.id].length})` : ''}`}
-                      </button>
-                      {openCommentTicketId === ticket.id && (
-                        <div className="commentSection">
-                          {commentLoadingTicketId === ticket.id ? (
-                            <p className="muted">Yorumlar yükleniyor...</p>
-                          ) : (
-                            <>
-                              <div className="commentList">
-                                {(ticketComments[ticket.id] ?? []).length === 0 && (
-                                  <p className="muted">Henüz yorum yok.</p>
-                                )}
-                                {(ticketComments[ticket.id] ?? []).map((c) => (
-                                  <div key={c.id} className="commentItem">
-                                    <div className="commentHeader">
-                                      <strong>{c.author.name}</strong>
-                                      <span className="muted">{new Date(c.createdAt).toLocaleString('tr-TR')}</span>
-                                    </div>
-                                    <p>{c.content}</p>
-                                  </div>
-                                ))}
-                              </div>
-                              <div className="commentInput">
-                                <textarea
-                                  placeholder="Yorumunuzu yazın..."
-                                  value={commentDrafts[ticket.id] ?? ''}
-                                  onChange={(e) =>
-                                    setCommentDrafts((prev) => ({ ...prev, [ticket.id]: e.target.value }))
-                                  }
-                                  rows={2}
-                                  disabled={submittingCommentTicketId === ticket.id}
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => submitComment(ticket.id)}
-                                  disabled={
-                                    submittingCommentTicketId === ticket.id ||
-                                    !(commentDrafts[ticket.id] ?? '').trim()
-                                  }
-                                >
-                                  {submittingCommentTicketId === ticket.id ? 'Gönderiliyor...' : 'Gönder'}
-                                </button>
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </div>
+                    <CommentPanel
+                      ticketId={ticket.id}
+                      openCommentTicketId={openCommentTicketId}
+                      commentLoadingTicketId={commentLoadingTicketId}
+                      submittingCommentTicketId={submittingCommentTicketId}
+                      ticketComments={ticketComments}
+                      commentDrafts={commentDrafts}
+                      onToggle={toggleComments}
+                      onDraftChange={(id, val) => setCommentDrafts((prev) => ({ ...prev, [id]: val }))}
+                      onSubmit={submitComment}
+                      currentUserId={currentUser?.id}
+                      teamMembers={activeTeamMembers}
+                      onReact={handleReaction}
+                    />
                   </article>
                 ))}
                 {myTickets.length === 0 && <p className="muted">Uzerinde calistigin gorev yok.</p>}
@@ -4329,6 +4640,30 @@ export default function HomePage() {
                 </li>
               ))}
             </motion.ul>
+          )}
+
+          {!loading && !isCaptain && memberTab === 'calendar' && (
+            <motion.div
+              key="member-calendar"
+              className="tabScene"
+              initial={{ opacity: 0, y: 10, scale: 0.99 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.99 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+            >
+              <h2 style={{ marginBottom: 16 }}>Takvim</h2>
+              <CalendarView
+                events={[
+                  ...myTickets
+                    .filter((t) => t.dueAt && t.status !== 'DONE')
+                    .map((t) => ({ date: t.dueAt!, type: 'deadline' as const, label: t.title, id: `ticket-${t.id}` })),
+                  ...(meeting ? [{ date: meeting.scheduledAt, type: 'meeting' as const, label: 'Toplantı', id: `meeting-${meeting.id}` }] : []),
+                  ...myLeaves
+                    .filter((l) => l.status === 'APPROVED')
+                    .map((l) => ({ date: l.startDate, type: 'leave' as const, label: 'İzin', id: `leave-${l.id}` })),
+                ]}
+              />
+            </motion.div>
           )}
 
           {!loading && isCaptain && captainTab === 'announcements' && (

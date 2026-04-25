@@ -84,6 +84,8 @@ model Ticket {
   submissions Submission[]
   reviews     TicketReview[]
   comments    Comment[]
+  dependents  TicketDependency[] @relation("DependentTickets")
+  dependencies TicketDependency[] @relation("DependencyTickets")
 }
 
 model TeamMember {
@@ -117,6 +119,9 @@ model TeamMember {
   leaves           Leave[]
   reviewedLeaves   Leave[]          @relation("LeaveReviewedBy")
   comments         Comment[]
+  auditLogs        AuditLog[]
+  commentReactions CommentReaction[]
+  ticketTemplates  TicketTemplate[]
 
   @@index([passwordResetTokenHash])
 }
@@ -274,14 +279,61 @@ model Leave {
 }
 
 model Comment {
-  id        String     @id @default(cuid())
+  id        String            @id @default(cuid())
   ticketId  String
   authorId  String
   content   String
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
-  ticket    Ticket     @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  author    TeamMember @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  ticket    Ticket            @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author    TeamMember        @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  reactions CommentReaction[]
 
   @@index([ticketId, createdAt])
+}
+
+model AuditLog {
+  id         String     @id @default(cuid())
+  actorId    String
+  action     String
+  entityType String
+  entityId   String
+  metadata   Json?
+  createdAt  DateTime   @default(now())
+  actor      TeamMember @relation(fields: [actorId], references: [id], onDelete: Cascade)
+
+  @@index([actorId, createdAt])
+  @@index([entityType, entityId, createdAt])
+}
+
+model CommentReaction {
+  commentId String
+  memberId  String
+  emoji     String
+  createdAt DateTime   @default(now())
+  comment   Comment    @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  member    TeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@id([commentId, memberId, emoji])
+}
+
+model TicketDependency {
+  ticketId    String
+  dependsOnId String
+  createdAt   DateTime @default(now())
+  ticket      Ticket   @relation("DependentTickets",  fields: [ticketId],    references: [id], onDelete: Cascade)
+  dependsOn   Ticket   @relation("DependencyTickets", fields: [dependsOnId], references: [id], onDelete: Cascade)
+
+  @@id([ticketId, dependsOnId])
+}
+
+model TicketTemplate {
+  id          String         @id @default(cuid())
+  title       String
+  description String?
+  priority    TicketPriority @default(MEDIUM)
+  createdById String
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  createdBy   TeamMember     @relation(fields: [createdById], references: [id], onDelete: Cascade)
 }

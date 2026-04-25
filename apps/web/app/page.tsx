@@ -1270,47 +1270,69 @@ export default function HomePage() {
       sseRef.current = null;
       return;
     }
-    sseRef.current?.close();
-    const es = new EventSource(
-      `${API_URL}/events/stream?token=${encodeURIComponent(authBundle.accessToken)}`,
-    );
-    sseRef.current = es;
-    es.onmessage = (e) => {
+
+    let cancelled = false;
+
+    const connectSse = async () => {
       try {
-        const payload = JSON.parse(e.data as string) as {
-          type: string;
-          ticketTitle?: string;
-          action?: string;
-          note?: string;
-          authorName?: string;
-          title?: string;
-        };
-        if (payload.type === 'ping') return;
-        if (payload.type === 'ticket:reviewed') {
-          const label = payload.action === 'APPROVED' ? 'Onaylandi' : 'Reddedildi';
-          showToast(
-            payload.action === 'APPROVED' ? 'success' : 'error',
-            `"${payload.ticketTitle}" ${label}${payload.note ? `: ${payload.note}` : ''}`,
-          );
-        } else if (payload.type === 'comment:new') {
-          showToast('success', `${payload.authorName} "${payload.ticketTitle}" gorevine yorum yapti`);
-        } else if (payload.type === 'announcement:new') {
-          showToast('success', `Yeni duyuru: ${payload.title}`);
-          if (memberTabRef.current !== 'announcements') {
-            setUnseenAnnouncementCount((c) => c + 1);
+        const ticketRes = await fetch(`${API_URL}/events/ticket`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${authBundle.accessToken}` },
+        });
+        if (!ticketRes.ok || cancelled) return;
+        const { ticket } = (await ticketRes.json()) as { ticket: string };
+        if (cancelled) return;
+
+        sseRef.current?.close();
+        const es = new EventSource(
+          `${API_URL}/events/stream?ticket=${encodeURIComponent(ticket)}`,
+        );
+        sseRef.current = es;
+        es.onmessage = (e) => {
+          try {
+            const payload = JSON.parse(e.data as string) as {
+              type: string;
+              ticketTitle?: string;
+              action?: string;
+              note?: string;
+              authorName?: string;
+              title?: string;
+            };
+            if (payload.type === 'ping') return;
+            if (payload.type === 'ticket:reviewed') {
+              const label = payload.action === 'APPROVED' ? 'Onaylandi' : 'Reddedildi';
+              showToast(
+                payload.action === 'APPROVED' ? 'success' : 'error',
+                `"${payload.ticketTitle}" ${label}${payload.note ? `: ${payload.note}` : ''}`,
+              );
+            } else if (payload.type === 'comment:new') {
+              showToast('success', `${payload.authorName} "${payload.ticketTitle}" gorevine yorum yapti`);
+            } else if (payload.type === 'announcement:new') {
+              showToast('success', `Yeni duyuru: ${payload.title}`);
+              if (memberTabRef.current !== 'announcements') {
+                setUnseenAnnouncementCount((c) => c + 1);
+              }
+            } else if (payload.type === 'ticket:deadline') {
+              showToast('error', `Son 24 saat! "${payload.ticketTitle}" teslim tarihi yaklasiyor.`);
+            }
+          } catch {
+            // malformed event — ignore
           }
-        } else if (payload.type === 'ticket:deadline') {
-          showToast('error', `Son 24 saat! "${payload.ticketTitle}" teslim tarihi yaklasiyor.`);
-        }
+        };
+        es.onerror = () => {
+          // browser auto-reconnects; no action needed
+        };
       } catch {
-        // malformed event — ignore
+        // ticket fetch failed — SSE will not connect
       }
     };
-    es.onerror = () => {
-      // browser auto-reconnects; no action needed
-    };
+
+    void connectSse();
+
     return () => {
-      es.close();
+      cancelled = true;
+      sseRef.current?.close();
+      sseRef.current = null;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authBundle?.accessToken]);

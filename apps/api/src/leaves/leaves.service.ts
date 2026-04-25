@@ -12,7 +12,10 @@ import { ReviewLeaveDto } from './dto/review-leave.dto';
 export class LeavesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll() {
+  async findAll(actorRole: string) {
+    if (actorRole !== 'CAPTAIN' && actorRole !== 'BOARD') {
+      throw new ForbiddenException('Bu islemi yapma yetkiniz yok');
+    }
     return this.prisma.leave.findMany({
       orderBy: { createdAt: 'desc' },
       select: {
@@ -69,7 +72,10 @@ export class LeavesService {
     });
   }
 
-  async review(actorId: string, id: string, dto: ReviewLeaveDto) {
+  async review(actorId: string, actorRole: string, id: string, dto: ReviewLeaveDto) {
+    if (actorRole !== 'CAPTAIN' && actorRole !== 'BOARD') {
+      throw new ForbiddenException('Bu islemi yapma yetkiniz yok');
+    }
     const leave = await this.prisma.leave.findUnique({ where: { id } });
     if (!leave) throw new NotFoundException('Izin talebi bulunamadi');
     if (leave.status !== 'PENDING') throw new BadRequestException('Bu talep zaten incelendi');

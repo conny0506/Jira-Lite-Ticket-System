@@ -112,12 +112,18 @@ async function bootstrap() {
     where: { role: 'CAPTAIN', active: true },
   });
   if (hasCaptain === 0) {
-    const email = process.env.BOOTSTRAP_CAPTAIN_EMAIL ?? 'ecceem.3566@gmail.com';
-    const password = process.env.BOOTSTRAP_CAPTAIN_PASSWORD ?? '123456';
+    const email = process.env.BOOTSTRAP_CAPTAIN_EMAIL?.trim();
+    const password = process.env.BOOTSTRAP_CAPTAIN_PASSWORD?.trim();
+    if (!email || !password) {
+      throw new Error(
+        'Aktif kaptan bulunamadı. ' +
+        'BOOTSTRAP_CAPTAIN_EMAIL ve BOOTSTRAP_CAPTAIN_PASSWORD ortam değişkenleri zorunludur.',
+      );
+    }
     await prisma.teamMember.upsert({
       where: { email: email.toLowerCase() },
       update: {
-        name: 'Ece MUTLUER',
+        name: 'Kaptan',
         role: 'CAPTAIN',
         active: true,
         passwordHash: await auth.hashPassword(password),
@@ -127,7 +133,7 @@ async function bootstrap() {
         },
       },
       create: {
-        name: 'Ece MUTLUER',
+        name: 'Kaptan',
         email: email.toLowerCase(),
         role: 'CAPTAIN',
         active: true,
@@ -138,7 +144,7 @@ async function bootstrap() {
       },
     });
     // eslint-disable-next-line no-console
-    console.log(`Başlangıç kaptanı hazır: ${email} / ${password}`);
+    console.log(`Başlangıç kaptanı oluşturuldu: ${email}`);
   }
 
   await prisma.project.upsert({

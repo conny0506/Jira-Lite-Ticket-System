@@ -22,6 +22,11 @@ export class PasswordResetMailService {
   }
 
   private buildPasswordResetContent(params: { name: string; resetUrl: string }): EmailContent {
+    const safeName = this.escapeHtml(params.name);
+    const safeUrl = this.escapeHtml(params.resetUrl);
+    // Reject non-http(s) schemes to prevent javascript: injection in href
+    const urlScheme = params.resetUrl.split(':')[0].toLowerCase();
+    const hrefUrl = urlScheme === 'http' || urlScheme === 'https' ? safeUrl : '#';
     return {
       subject: 'Jira-lite sifre sifirlama baglantisi',
       text: [
@@ -34,9 +39,9 @@ export class PasswordResetMailService {
         'Eger bu islemi siz istemediyseniz bu e-postayi yok sayin.',
       ].join('\n'),
       html: `
-        <p>Merhaba ${params.name},</p>
+        <p>Merhaba ${safeName},</p>
         <p>Sifrenizi sifirlamak icin asagidaki baglantiyi acin:</p>
-        <p><a href="${params.resetUrl}">${params.resetUrl}</a></p>
+        <p><a href="${hrefUrl}">${safeUrl}</a></p>
         <p>Bu baglanti sinirli sure gecerlidir.</p>
         <p>Eger bu islemi siz istemediyseniz bu e-postayi yok sayin.</p>
       `,
@@ -65,11 +70,11 @@ export class PasswordResetMailService {
         `Gorevi goruntulemek icin: ${params.portalUrl}`,
       ].join('\n'),
       html: `
-        <p>Merhaba ${params.name},</p>
-        <p><strong>${params.assignedByName}</strong> tarafindan size yeni bir gorev atandi.</p>
-        <p><strong>Gorev:</strong> ${params.ticketTitle}</p>
-        <p><strong>${dueLine}</strong></p>
-        <p><a href="${params.portalUrl}">Gorev panelini ac</a></p>
+        <p>Merhaba ${this.escapeHtml(params.name)},</p>
+        <p><strong>${this.escapeHtml(params.assignedByName)}</strong> tarafindan size yeni bir gorev atandi.</p>
+        <p><strong>Gorev:</strong> ${this.escapeHtml(params.ticketTitle)}</p>
+        <p><strong>${this.escapeHtml(dueLine)}</strong></p>
+        <p><a href="${this.escapeHtml(params.portalUrl)}">Gorev panelini ac</a></p>
       `,
     };
   }

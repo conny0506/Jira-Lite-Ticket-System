@@ -10,8 +10,8 @@ export class LeavesController {
   constructor(private readonly leavesService: LeavesService) {}
 
   @Get()
-  findAll() {
-    return this.leavesService.findAll();
+  findAll(@CurrentUserRole() actorRole: string) {
+    return this.leavesService.findAll(actorRole);
   }
 
   @Get('mine')
@@ -27,10 +27,11 @@ export class LeavesController {
   @Patch(':id/review')
   review(
     @CurrentUserId() actorId: string,
+    @CurrentUserRole() actorRole: string,
     @Param('id') id: string,
     @Body() dto: ReviewLeaveDto,
   ) {
-    return this.leavesService.review(actorId, id, dto);
+    return this.leavesService.review(actorId, actorRole, id, dto);
   }
 
   @Delete(':id')

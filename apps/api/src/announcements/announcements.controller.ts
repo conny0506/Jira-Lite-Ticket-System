@@ -9,7 +9,7 @@ export class AnnouncementsController {
   constructor(private readonly announcementsService: AnnouncementsService) {}
 
   @Get()
-  findAll() {
+  findAll(@CurrentUserId() _actorId: string) {
     return this.announcementsService.findAll();
   }
 

@@ -8,7 +8,7 @@ export class TemplatesController {
   constructor(private readonly templatesService: TemplatesService) {}
 
   @Get()
-  list() {
+  list(@CurrentUserId() _actorId: string) {
     return this.templatesService.list();
   }
 

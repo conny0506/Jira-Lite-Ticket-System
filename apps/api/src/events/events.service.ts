@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { randomBytes } from 'crypto';
 import { Subject, Observable } from 'rxjs';
 
 export type SsePayload =
@@ -10,9 +11,33 @@ export type SsePayload =
   | { type: 'ticket:deadline'; ticketId: string; ticketTitle: string; dueAt: string }
   | { type: 'ping' };
 
+const SSE_TICKET_TTL_MS = 5 * 60 * 1000; // 5 dakika — access token süresiyle eşleşir
+
 @Injectable()
 export class EventsService {
   private readonly connections = new Map<string, Set<Subject<MessageEvent>>>();
+  private readonly tickets = new Map<string, { memberId: string; expiresAt: number }>();
+
+  generateTicket(memberId: string): string {
+    // Süresi dolmuş ticketları temizle
+    const now = Date.now();
+    for (const [t, entry] of this.tickets) {
+      if (entry.expiresAt < now) this.tickets.delete(t);
+    }
+    const ticket = randomBytes(32).toString('hex');
+    this.tickets.set(ticket, { memberId, expiresAt: now + SSE_TICKET_TTL_MS });
+    return ticket;
+  }
+
+  redeemTicket(ticket: string): string {
+    const entry = this.tickets.get(ticket);
+    if (!entry) throw new UnauthorizedException('Ticket gecersiz');
+    if (entry.expiresAt < Date.now()) {
+      this.tickets.delete(ticket);
+      throw new UnauthorizedException('Ticket suresi dolmus');
+    }
+    return entry.memberId;
+  }
 
   addConnection(memberId: string): { observable: Observable<MessageEvent>; subject: Subject<MessageEvent> } {
     const subject = new Subject<MessageEvent>();

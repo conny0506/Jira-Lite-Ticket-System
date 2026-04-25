@@ -1,4 +1,4 @@
-import { Controller, Query, Req, Sse, UnauthorizedException } from '@nestjs/common';
+import { Controller, Post, Query, Req, Sse, UnauthorizedException } from '@nestjs/common';
 import { Observable, interval, merge } from 'rxjs';
 import { map, takeUntil } from 'rxjs/operators';
 import { Subject } from 'rxjs';
@@ -9,19 +9,35 @@ import { EventsService } from './events.service';
 export class EventsController {
   constructor(private readonly eventsService: EventsService) {}
 
+  @Post('ticket')
+  issueTicket(
+    @Req() req: { headers: Record<string, string | undefined> },
+  ): { ticket: string } {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) throw new UnauthorizedException('Authorization basligı zorunludur');
+    const [scheme, token] = authHeader.split(' ');
+    if (scheme !== 'Bearer' || !token) throw new UnauthorizedException('Bearer token gerekli');
+    try {
+      const payload = verifyAccessToken(token);
+      const ticket = this.eventsService.generateTicket(payload.sub);
+      return { ticket };
+    } catch {
+      throw new UnauthorizedException('Token gecersiz veya suresi dolmus');
+    }
+  }
+
   @Sse('stream')
   stream(
-    @Query('token') token: string,
+    @Query('ticket') ticket: string,
     @Req() req: { on: (event: string, cb: () => void) => void },
   ): Observable<MessageEvent> {
-    if (!token) throw new UnauthorizedException('Token zorunludur');
+    if (!ticket) throw new UnauthorizedException('Ticket zorunludur');
 
     let memberId: string;
     try {
-      const payload = verifyAccessToken(token);
-      memberId = payload.sub;
+      memberId = this.eventsService.redeemTicket(ticket);
     } catch {
-      throw new UnauthorizedException('Token gecersiz veya suresi dolmus');
+      throw new UnauthorizedException('Ticket gecersiz veya suresi dolmus');
     }
 
     const { observable, subject } = this.eventsService.addConnection(memberId);

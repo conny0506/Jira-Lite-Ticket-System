@@ -95,9 +95,9 @@ export function DashboardCharts({ tickets }: Props) {
             <YAxis tick={{ fontSize: 11, fill: 'var(--muted)' }} allowDecimals={false} />
             <Tooltip contentStyle={{ background: 'var(--card)', border: '1px solid var(--line)', color: 'var(--text)', fontSize: 12 }} />
             <Legend wrapperStyle={{ fontSize: 12 }} />
-            <Bar dataKey="done" name="Tamamlandı" fill="#00d1b6" radius={[3, 3, 0, 0]} />
-            <Bar dataKey="active" name="Aktif" fill="#23a4ff" radius={[3, 3, 0, 0]} />
-            <Bar dataKey="late" name="Gecikmiş" fill="#e74c3c" radius={[3, 3, 0, 0]} />
+            <Bar dataKey="done" name="Tamamlandı" fill="#00d1b6" radius={[3, 3, 0, 0]} isAnimationActive animationDuration={800} animationBegin={100} />
+            <Bar dataKey="active" name="Aktif" fill="#23a4ff" radius={[3, 3, 0, 0]} isAnimationActive animationDuration={800} animationBegin={200} />
+            <Bar dataKey="late" name="Gecikmiş" fill="#e74c3c" radius={[3, 3, 0, 0]} isAnimationActive animationDuration={800} animationBegin={300} />
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -124,7 +124,7 @@ export function DashboardCharts({ tickets }: Props) {
             <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'var(--muted)' }} />
             <YAxis tick={{ fontSize: 11, fill: 'var(--muted)' }} allowDecimals={false} />
             <Tooltip contentStyle={{ background: 'var(--card)', border: '1px solid var(--line)', color: 'var(--text)', fontSize: 12 }} />
-            <Line type="monotone" dataKey="count" name="Tamamlanan" stroke="#00d1b6" strokeWidth={2} dot={{ fill: '#00d1b6', r: 4 }} />
+            <Line type="monotone" dataKey="count" name="Tamamlanan" stroke="#00d1b6" strokeWidth={2} dot={{ fill: '#00d1b6', r: 4 }} isAnimationActive animationDuration={1000} animationEasing="ease-out" />
           </LineChart>
         </ResponsiveContainer>
       </div>

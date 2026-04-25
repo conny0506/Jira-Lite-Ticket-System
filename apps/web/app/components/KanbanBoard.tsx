@@ -1,6 +1,7 @@
 'use client';
 
 import { DragEvent, useState } from 'react';
+import { motion } from 'framer-motion';
 
 type TicketStatus = 'TODO' | 'IN_PROGRESS' | 'IN_REVIEW' | 'DONE';
 type TicketPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
@@ -65,11 +66,15 @@ export function KanbanBoard({ tickets, onStatusChange }: Props) {
       {COLUMNS.map((col) => {
         const colTickets = tickets.filter((t) => t.status === col.status);
         const isOver = overColumn === col.status;
+        const colIndex = COLUMNS.indexOf(col);
         return (
-          <div
+          <motion.div
             key={col.status}
             className="kanbanColumn"
             style={{ borderTop: `3px solid ${col.color}`, background: isOver ? 'var(--hover)' : undefined }}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: colIndex * 0.08, ease: 'easeOut' }}
             onDrop={(e) => handleDrop(e, col.status)}
             onDragOver={(e) => handleDragOver(e, col.status)}
             onDragLeave={() => setOverColumn(null)}
@@ -130,7 +135,7 @@ export function KanbanBoard({ tickets, onStatusChange }: Props) {
                 </div>
               )}
             </div>
-          </div>
+          </motion.div>
         );
       })}
     </div>

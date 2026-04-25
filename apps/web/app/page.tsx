@@ -1,13 +1,14 @@
 'use client';
 
 import { DragEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
+import { AnimatePresence, LayoutGroup, motion, useMotionValue, useSpring } from 'framer-motion';
 import Link from 'next/link';
 import type { Options as DocxPreviewOptions } from 'docx-preview';
 import { KanbanBoard } from './components/KanbanBoard';
 import { DashboardCharts } from './components/DashboardCharts';
 import { CalendarView } from './components/CalendarView';
 import { AuditLogFeed } from './components/AuditLogFeed';
+import { ScoreRing } from './components/ScoreRing';
 
 type TeamRole = 'MEMBER' | 'BOARD' | 'CAPTAIN' | 'RD_LEADER';
 type Department = 'SOFTWARE' | 'INDUSTRIAL' | 'MECHANICAL' | 'ELECTRICAL_ELECTRONICS';
@@ -443,6 +444,20 @@ function buildCreateTicketFormData(draft: TicketCreateDraft) {
   return form;
 }
 
+const LOGIN_PARTICLES: Array<{
+  w: number; h: number; top: string; left: string;
+  bg: string; dur: string; delay: string;
+}> = [
+  { w: 7,  h: 7,  top: '9%',  left: '6%',  bg: 'rgba(35,164,255,0.55)',  dur: '9s',   delay: '0s'   },
+  { w: 5,  h: 5,  top: '34%', left: '76%', bg: 'rgba(0,209,182,0.65)',   dur: '11s',  delay: '1.2s' },
+  { w: 10, h: 10, top: '70%', left: '18%', bg: 'rgba(35,164,255,0.30)',  dur: '7.5s', delay: '0.6s' },
+  { w: 6,  h: 6,  top: '55%', left: '89%', bg: 'rgba(0,209,182,0.50)',   dur: '13s',  delay: '2s'   },
+  { w: 4,  h: 4,  top: '20%', left: '45%', bg: 'rgba(255,255,255,0.22)', dur: '8.5s', delay: '3s'   },
+  { w: 8,  h: 8,  top: '81%', left: '60%', bg: 'rgba(35,164,255,0.40)',  dur: '10s',  delay: '0.3s' },
+  { w: 5,  h: 5,  top: '91%', left: '35%', bg: 'rgba(0,209,182,0.35)',   dur: '14s',  delay: '1.8s' },
+  { w: 9,  h: 9,  top: '46%', left: '3%',  bg: 'rgba(35,164,255,0.45)',  dur: '12s',  delay: '4s'   },
+];
+
 function pickNextQuote(previousQuote: string) {
   if (FALLBACK_QUOTES.length < 2) return FALLBACK_QUOTES[0] ?? previousQuote;
   let next = previousQuote;
@@ -577,6 +592,7 @@ export default function HomePage() {
   const [captainMetricsEnd, setCaptainMetricsEnd] = useState('');
   const [introStage, setIntroStage] = useState<IntroStage>('none');
   const [introQuote, setIntroQuote] = useState(FALLBACK_QUOTES[0]);
+  const [quoteTypedChars, setQuoteTypedChars] = useState(0);
   const [introTypedChars, setIntroTypedChars] = useState(0);
   const [memberTasksPulse, setMemberTasksPulse] = useState(false);
   const [unseenAnnouncementCount, setUnseenAnnouncementCount] = useState(0);
@@ -622,6 +638,10 @@ export default function HomePage() {
   const [auditLoading, setAuditLoading] = useState(false);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionTicketId, setMentionTicketId] = useState<string | null>(null);
+  const loginRotateXRaw = useMotionValue(0);
+  const loginRotateYRaw = useMotionValue(0);
+  const loginRotateX = useSpring(loginRotateXRaw, { stiffness: 200, damping: 20 });
+  const loginRotateY = useSpring(loginRotateYRaw, { stiffness: 200, damping: 20 });
   const toastIdRef = useRef(1);
   const previousUnseenTaskCountRef = useRef(0);
   const introQuoteRef = useRef(introQuote);
@@ -1707,6 +1727,40 @@ export default function HomePage() {
     return () => clearInterval(timer);
   }, [introStage]);
 
+  useEffect(() => {
+    function onMove(e: MouseEvent) {
+      document.documentElement.style.setProperty('--mx', `${e.clientX}px`);
+      document.documentElement.style.setProperty('--my', `${e.clientY}px`);
+    }
+    window.addEventListener('mousemove', onMove, { passive: true });
+    return () => window.removeEventListener('mousemove', onMove);
+  }, []);
+
+  useEffect(() => {
+    if (introStage !== 'quote') return;
+    setQuoteTypedChars(0);
+    let i = 0;
+    const id = setInterval(() => {
+      i = Math.min(i + 3, introQuote.length);
+      setQuoteTypedChars(i);
+      if (i >= introQuote.length) clearInterval(id);
+    }, 28);
+    return () => clearInterval(id);
+  }, [introQuote, introStage]);
+
+  function handleLoginMouseMove(e: React.MouseEvent<HTMLDivElement>) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = (e.clientY - rect.top) / rect.height - 0.5;
+    const y = (e.clientX - rect.left) / rect.width - 0.5;
+    loginRotateXRaw.set(-x * 8);
+    loginRotateYRaw.set(y * 8);
+  }
+
+  function handleLoginMouseLeave() {
+    loginRotateXRaw.set(0);
+    loginRotateYRaw.set(0);
+  }
+
   async function onLogin(e: FormEvent) {
     e.preventDefault();
     if (isLoggingIn) return;
@@ -2768,57 +2822,133 @@ export default function HomePage() {
 
   if (!currentUser) {
     return (
-      <main className="app">
-        <section className="panel loginPanel">
-          <h1>Ülgen AR-GE Giriş</h1>
-          <p className="muted">Üyeler e-posta ve şifre ile giriş yapar.</p>
+      <main className="loginScreen">
+        {LOGIN_PARTICLES.map((p, i) => (
+          <span
+            key={i}
+            className="loginParticle"
+            style={{
+              width: p.w,
+              height: p.h,
+              top: p.top,
+              left: p.left,
+              background: p.bg,
+              animationDuration: p.dur,
+              animationDelay: p.delay,
+            }}
+          />
+        ))}
+
+        <motion.div
+          className="loginFormCol"
+          style={{ rotateX: loginRotateX, rotateY: loginRotateY }}
+          onMouseMove={handleLoginMouseMove}
+          onMouseLeave={handleLoginMouseLeave}
+        >
+          <motion.h1
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4 }}
+          >
+            Ülgen AR-GE Giriş
+          </motion.h1>
+          <motion.p
+            className="muted"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.08 }}
+          >
+            Üyeler e-posta ve şifre ile giriş yapar.
+          </motion.p>
           {error && <p className="errorBox">{error}</p>}
           <form onSubmit={onLogin} className="formBlock">
-            <input
-              placeholder="E-posta"
-              value={loginEmail}
-              onChange={(e) => {
-                setLoginEmail(e.target.value);
-                setLoginFieldError('');
-              }}
-              required
-            />
-            <input
-              type="password"
-              placeholder="Sifre"
-              value={loginPassword}
-              onChange={(e) => {
-                setLoginPassword(e.target.value);
-                setLoginFieldError('');
-              }}
-              required
-            />
-            {loginFieldError && <p className="fieldError">{loginFieldError}</p>}
-            <label className="checkboxRow">
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.12, duration: 0.3 }}
+            >
               <input
-                type="checkbox"
-                checked={rememberMe}
-                onChange={(e) => setRememberMe(e.target.checked)}
+                placeholder="E-posta"
+                value={loginEmail}
+                onChange={(e) => {
+                  setLoginEmail(e.target.value);
+                  setLoginFieldError('');
+                }}
+                required
               />
-              Beni Hatırla
-            </label>
-            <button type="submit" disabled={isLoggingIn}>
-              {isLoggingIn ? 'Giris yapiliyor...' : 'Giris Yap'}
-            </button>
+            </motion.div>
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.19, duration: 0.3 }}
+            >
+              <input
+                type="password"
+                placeholder="Sifre"
+                value={loginPassword}
+                onChange={(e) => {
+                  setLoginPassword(e.target.value);
+                  setLoginFieldError('');
+                }}
+                required
+              />
+            </motion.div>
+            {loginFieldError && <p className="fieldError">{loginFieldError}</p>}
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.26, duration: 0.3 }}
+            >
+              <label className="checkboxRow">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                />
+                Beni Hatırla
+              </label>
+            </motion.div>
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.33, duration: 0.3 }}
+            >
+              <motion.button
+                type="submit"
+                disabled={isLoggingIn}
+                whileHover={{ scale: 1.02, boxShadow: '0 8px 28px rgba(35,164,255,0.35)' }}
+                whileTap={{ scale: 0.97 }}
+                transition={{ type: 'spring', stiffness: 400, damping: 20 }}
+                style={{ width: '100%' }}
+              >
+                {isLoggingIn ? 'Giris yapiliyor...' : 'Giris Yap'}
+              </motion.button>
+            </motion.div>
           </form>
           <Link href="/forgot-password" className="textBtn inlineLink">
             Sifremi unuttum
           </Link>
-        </section>
-        <section className="loginWideImage" aria-label="Giris alt gorseli">
-          <img
-            src="/assets/illustrations/login-wide-banner.jpg"
-            alt="Giris alt gorseli"
-          />
-        </section>
-        <p className="loginQuote">
-          Yukselmek cesaret ister, havada kalmak disiplin.
-        </p>
+        </motion.div>
+
+        <motion.div
+          className="loginBrandCol"
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.5, delay: 0.1 }}
+        >
+          <div className="loginBrandOrbA" aria-hidden="true" />
+          <div className="loginBrandOrbB" aria-hidden="true" />
+          <p className="loginBrandLogo">ÜLGEN</p>
+          <p className="loginBrandSub">AR-GE Proje Yönetim Sistemi</p>
+          <span className="loginStatusBadge">
+            <span className="loginStatusDot" />
+            Sistem Çevrimiçi
+          </span>
+          <blockquote className="loginBrandQuote">
+            Yükselmek cesaret ister, havada kalmak disiplin.
+          </blockquote>
+        </motion.div>
+
         <button
           type="button"
           className="bugFab"
@@ -2889,21 +3019,30 @@ export default function HomePage() {
             >
               <p className="introTag">ULGEN://DAILY-BRIEF</p>
               <h1>Hoş geldin, {currentUser.name}.</h1>
-              <div className="introScore">
-                <p className="introScoreValue">{`Günlük Odak Puanı: ${introScore.score}/100`}</p>
-                <span
-                  className={
-                    introScore.tone === 'high'
-                      ? 'scoreBadge scoreHigh'
-                      : introScore.tone === 'mid'
-                        ? 'scoreBadge scoreMid'
-                        : 'scoreBadge scoreLow'
-                  }
-                >
-                  {`Durum: ${introScore.label}`}
-                </span>
+              <div className="introScore" style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 12 }}>
+                <ScoreRing score={introScore.score} tone={introScore.tone} />
+                <div>
+                  <p className="introScoreValue" style={{ marginBottom: 6 }}>{`Günlük Odak Puanı: ${introScore.score}/100`}</p>
+                  <span
+                    className={
+                      introScore.tone === 'high'
+                        ? 'scoreBadge scoreHigh'
+                        : introScore.tone === 'mid'
+                          ? 'scoreBadge scoreMid'
+                          : 'scoreBadge scoreLow'
+                    }
+                  >
+                    {`Durum: ${introScore.label}`}
+                  </span>
+                </div>
               </div>
               <div className="terminalBox">
+                <div className="terminalWinBar">
+                  <span className="winDot winRed" />
+                  <span className="winDot winYellow" />
+                  <span className="winDot winGreen" />
+                  <span className="terminalWinTitle">ulgen://daily-brief</span>
+                </div>
                 {introTerminalLines.map((line, index) => {
                   const typedLine = getTypedIntroLine(index);
                   if (!typedLine) return null;
@@ -2913,25 +3052,31 @@ export default function HomePage() {
                     introTypedChars > range.start &&
                     introTypedChars <= range.end;
                   return (
-                    <p
+                    <motion.p
                       key={`${line}-${index}`}
                       className={isTyping ? 'terminalLine isTyping' : 'terminalLine'}
+                      initial={{ opacity: 0, x: -8 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ duration: 0.22, delay: index * 0.04 }}
                     >
                       {typedLine}
-                    </p>
+                    </motion.p>
                   );
                 })}
               </div>
-              <button
+              <motion.button
                 type="button"
                 className="introActionBtn"
+                whileHover={{ scale: 1.03, boxShadow: '0 8px 28px rgba(35,164,255,0.35)' }}
+                whileTap={{ scale: 0.97 }}
+                transition={{ type: 'spring', stiffness: 400, damping: 20 }}
                 onClick={() => {
                   setIntroStage('quote');
                   void rotateIntroQuote();
                 }}
               >
                 Girişe Devam Et
-              </button>
+              </motion.button>
             </motion.section>
           )}
 
@@ -2944,25 +3089,44 @@ export default function HomePage() {
               exit={{ opacity: 0 }}
               transition={{ duration: 0.3 }}
             >
-              <p className="quoteMark">“</p>
+              <div className="quoteOrb quoteOrb1" aria-hidden="true" />
+              <div className="quoteOrb quoteOrb2" aria-hidden="true" />
+              <div className="quoteHeader">
+                <span className="quoteMark">{'"'}</span>
+              </div>
               <AnimatePresence mode="wait">
                 <motion.blockquote
                   key={introQuote}
-                  initial={{ opacity: 0, y: 8 }}
+                  initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -8 }}
-                  transition={{ duration: 0.25 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.22 }}
                 >
-                  {introQuote}
+                  {introQuote.slice(0, quoteTypedChars)}
+                  {quoteTypedChars < introQuote.length && (
+                    <span className="quoteCursor">|</span>
+                  )}
                 </motion.blockquote>
               </AnimatePresence>
-              <button
+              <div className="quoteSkipRow">
+                <button
+                  type="button"
+                  className="quoteSkip"
+                  onClick={() => void rotateIntroQuote()}
+                >
+                  Sonraki Alıntı →
+                </button>
+              </div>
+              <motion.button
                 type="button"
                 className="introActionBtn introLightBtn"
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
+                transition={{ type: 'spring', stiffness: 400, damping: 20 }}
                 onClick={() => setIntroStage('none')}
               >
                 Çalışma Alanına Geç
-              </button>
+              </motion.button>
             </motion.section>
           )}
         </AnimatePresence>

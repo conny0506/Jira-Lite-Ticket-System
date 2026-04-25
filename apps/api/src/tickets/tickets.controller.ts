@@ -25,6 +25,17 @@ import { UpdateTicketStatusDto } from './dto/update-ticket-status.dto';
 import { MarkTicketsSeenDto } from './dto/mark-tickets-seen.dto';
 import { UploadCaptainFileDto } from './dto/upload-captain-file.dto';
 import { CreateCommentDto } from './dto/create-comment.dto';
+import { IsEnum, IsString } from 'class-validator';
+
+class AddReactionDto {
+  @IsString()
+  emoji!: string;
+}
+
+class AddDependencyDto {
+  @IsString()
+  dependsOnId!: string;
+}
 
 @Controller('tickets')
 export class TicketsController {
@@ -134,6 +145,49 @@ export class TicketsController {
     @Body() dto: CreateCommentDto,
   ) {
     return this.ticketsService.createComment(actorId, id, dto);
+  }
+
+  @Post(':id/comments/:commentId/reactions')
+  addReaction(
+    @CurrentUserId() actorId: string,
+    @Param('id') id: string,
+    @Param('commentId') commentId: string,
+    @Body() dto: AddReactionDto,
+  ) {
+    return this.ticketsService.addReaction(actorId, id, commentId, dto.emoji);
+  }
+
+  @Delete(':id/comments/:commentId/reactions/:emoji')
+  removeReaction(
+    @CurrentUserId() actorId: string,
+    @Param('id') id: string,
+    @Param('commentId') commentId: string,
+    @Param('emoji') emoji: string,
+  ) {
+    return this.ticketsService.removeReaction(actorId, id, commentId, decodeURIComponent(emoji));
+  }
+
+  @Get(':id/dependencies')
+  listDependencies(@CurrentUserId() actorId: string, @Param('id') id: string) {
+    return this.ticketsService.listDependencies(actorId, id);
+  }
+
+  @Post(':id/dependencies')
+  addDependency(
+    @CurrentUserId() actorId: string,
+    @Param('id') id: string,
+    @Body() dto: AddDependencyDto,
+  ) {
+    return this.ticketsService.addDependency(actorId, id, dto.dependsOnId);
+  }
+
+  @Delete(':id/dependencies/:dependsOnId')
+  removeDependency(
+    @CurrentUserId() actorId: string,
+    @Param('id') id: string,
+    @Param('dependsOnId') dependsOnId: string,
+  ) {
+    return this.ticketsService.removeDependency(actorId, id, dependsOnId);
   }
 
   @Get(':id/submissions')

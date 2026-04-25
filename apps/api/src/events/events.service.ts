@@ -5,6 +5,7 @@ export type SsePayload =
   | { type: 'ticket:assigned'; ticketId: string; ticketTitle: string; assignedByName: string }
   | { type: 'ticket:reviewed'; ticketId: string; ticketTitle: string; action: string; note?: string }
   | { type: 'comment:new'; ticketId: string; ticketTitle: string; authorName: string }
+  | { type: 'mention:new'; ticketId: string; ticketTitle: string; authorName: string; commentPreview: string }
   | { type: 'announcement:new'; title: string }
   | { type: 'ticket:deadline'; ticketId: string; ticketTitle: string; dueAt: string }
   | { type: 'ping' };

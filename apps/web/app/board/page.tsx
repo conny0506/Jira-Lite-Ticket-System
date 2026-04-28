@@ -25,8 +25,7 @@ export default function BoardPage() {
         return;
       }
       const parsed = JSON.parse(raw) as BoardAuthBundle;
-      const expiresAt = new Date(parsed.accessTokenExpiresAt).getTime();
-      if (Number.isNaN(expiresAt) || expiresAt < Date.now()) {
+      if (!parsed?.accessToken || !parsed?.user?.id) {
         router.replace('/');
         return;
       }

@@ -6,6 +6,7 @@ import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { AnnouncementsModule } from './announcements/announcements.module';
 import { AuditLogsModule } from './audit-logs/audit-logs.module';
 import { AuthModule } from './auth/auth.module';
+import { BoardModule } from './board/board.module';
 import { EventsModule } from './events/events.module';
 import { HealthController } from './health.controller';
 import { LeavesModule } from './leaves/leaves.module';
@@ -28,6 +29,7 @@ import { TicketsModule } from './tickets/tickets.module';
     AnnouncementsModule,
     AuditLogsModule,
     AuthModule,
+    BoardModule,
     EventsModule,
     LeavesModule,
     MeetingsModule,

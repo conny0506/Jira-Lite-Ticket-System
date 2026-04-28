@@ -52,6 +52,12 @@ enum LeaveStatus {
   REJECTED
 }
 
+enum BoardCardStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+}
+
 model Project {
   id          String   @id @default(cuid())
   key         String   @unique
@@ -122,6 +128,7 @@ model TeamMember {
   auditLogs        AuditLog[]
   commentReactions CommentReaction[]
   ticketTemplates  TicketTemplate[]
+  boardCardsCreated BoardCard[] @relation("BoardCardCreatedBy")
 
   @@index([passwordResetTokenHash])
 }
@@ -336,4 +343,53 @@ model TicketTemplate {
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
   createdBy   TeamMember     @relation(fields: [createdById], references: [id], onDelete: Cascade)
+}
+
+model BoardCard {
+  id                     String          @id @default(cuid())
+  title                  String
+  description            String?
+  status                 BoardCardStatus @default(TODO)
+  startAt                DateTime?
+  dueAt                  DateTime?
+  position               Int             @default(0)
+  hideCompletedChecklist Boolean         @default(false)
+  createdById            String
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
+  createdBy              TeamMember      @relation("BoardCardCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  labels                 BoardCardLabel[]
+  checklist              BoardChecklistItem[]
+
+  @@index([status, position])
+}
+
+model BoardLabel {
+  id        String           @id @default(cuid())
+  name      String
+  color     String
+  createdAt DateTime         @default(now())
+  cards     BoardCardLabel[]
+}
+
+model BoardCardLabel {
+  cardId  String
+  labelId String
+  card    BoardCard  @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  label   BoardLabel @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@id([cardId, labelId])
+}
+
+model BoardChecklistItem {
+  id        String    @id @default(cuid())
+  cardId    String
+  text      String
+  done      Boolean   @default(false)
+  position  Int       @default(0)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  card      BoardCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@index([cardId, position])
 }

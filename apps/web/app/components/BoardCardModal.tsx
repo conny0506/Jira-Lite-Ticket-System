@@ -54,13 +54,17 @@ export function BoardCardModal({
   const titleDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const descDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Only re-init local state when modal switches to a different card.
+  // Re-syncing on every card field change would clobber in-progress typing
+  // (e.g. when the debounced description patch returns and updates the card prop).
   useEffect(() => {
     setTitle(card.title);
     setDescription(card.description ?? '');
     setStartAt(toInputDate(card.startAt));
     setDueAt(toInputDate(card.dueAt));
     setHideDone(card.hideCompletedChecklist);
-  }, [card.id, card.title, card.description, card.startAt, card.dueAt, card.hideCompletedChecklist]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [card.id]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -94,7 +98,7 @@ export function BoardCardModal({
     if (descDebounce.current) clearTimeout(descDebounce.current);
     descDebounce.current = setTimeout(() => {
       if (val !== (card.description ?? '')) void onUpdateCard({ description: val || null });
-    }, 500);
+    }, 600);
   }
 
   function commitDate(field: 'startAt' | 'dueAt', val: string) {
@@ -144,7 +148,7 @@ export function BoardCardModal({
         onClick={onClose}
       >
         <motion.div
-          className="boardModal"
+          className="boardModal boardModalSplit"
           initial={{ opacity: 0, scale: 0.92, y: 16 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.92, y: 16 }}
@@ -162,115 +166,137 @@ export function BoardCardModal({
             <button type="button" className="boardModalClose" onClick={onClose} aria-label="Kapat">×</button>
           </header>
 
-          <div className="boardModalBody">
-            <section className="boardModalRow">
-              <span className="boardModalLabel">Etiketler</span>
-              <div className="boardModalLabelList">
-                {card.labels.map(({ label }) => (
-                  <span key={label.id} className="boardLabelChipFull" style={{ background: label.color }}>{label.name}</span>
-                ))}
-                {!readOnly && (
-                  <button
-                    type="button"
-                    className="boardModalChipBtn"
-                    onClick={() => setLabelPopoverOpen((v) => !v)}
-                  >
-                    + Ekle
-                  </button>
-                )}
-              </div>
-              {labelPopoverOpen && !readOnly && (
-                <div className="boardLabelPopover">
-                  <p className="boardLabelPopoverTitle">Mevcut etiketler</p>
-                  <div className="boardLabelPopoverList">
-                    {labels.length === 0 && <p className="muted" style={{ fontSize: 12 }}>Henuz etiket yok</p>}
-                    {labels.map((l) => (
-                      <div key={l.id} className="boardLabelPopoverItem">
-                        <button
-                          type="button"
-                          className="boardLabelPopoverToggle"
-                          style={{ background: l.color }}
-                          onClick={() => toggleLabel(l.id)}
-                        >
-                          {activeLabelIds.has(l.id) ? '✓ ' : ''}{l.name}
-                        </button>
-                        <button
-                          type="button"
-                          className="boardLabelPopoverDel"
-                          onClick={() => void onDeleteLabel(l.id)}
-                          aria-label="Sil"
-                        >×</button>
-                      </div>
-                    ))}
-                  </div>
-                  <form className="boardLabelPopoverForm" onSubmit={handleCreateLabel}>
-                    <input
-                      placeholder="Yeni etiket adi"
-                      value={newLabelName}
-                      onChange={(e) => setNewLabelName(e.target.value)}
-                      maxLength={40}
-                    />
-                    <div className="boardLabelColors">
-                      {LABEL_COLORS.map((c) => (
-                        <button
-                          key={c}
-                          type="button"
-                          className="boardLabelColorSwatch"
-                          style={{ background: c, outline: newLabelColor === c ? '2px solid #fff' : 'none' }}
-                          onClick={() => setNewLabelColor(c)}
-                          aria-label={c}
-                        />
+          <div className="boardModalContent">
+            <div className="boardModalLeft">
+              <section className="boardModalRow">
+                <span className="boardModalLabel">Etiketler</span>
+                <div className="boardModalLabelList">
+                  {card.labels.map(({ label }) => (
+                    <span key={label.id} className="boardLabelChipFull" style={{ background: label.color }}>{label.name}</span>
+                  ))}
+                  {!readOnly && (
+                    <button
+                      type="button"
+                      className="boardModalChipBtn"
+                      onClick={() => setLabelPopoverOpen((v) => !v)}
+                    >
+                      + Ekle
+                    </button>
+                  )}
+                </div>
+                {labelPopoverOpen && !readOnly && (
+                  <div className="boardLabelPopover">
+                    <div className="boardLabelPopoverHead">
+                      <p className="boardLabelPopoverTitle">Mevcut etiketler</p>
+                      <button
+                        type="button"
+                        className="boardLabelPopoverClose"
+                        onClick={() => setLabelPopoverOpen(false)}
+                        aria-label="Kapat"
+                      >×</button>
+                    </div>
+                    <div className="boardLabelPopoverList">
+                      {labels.length === 0 && <p className="muted" style={{ fontSize: 12 }}>Henuz etiket yok</p>}
+                      {labels.map((l) => (
+                        <div key={l.id} className="boardLabelPopoverItem">
+                          <button
+                            type="button"
+                            className="boardLabelPopoverToggle"
+                            style={{ background: l.color }}
+                            onClick={() => toggleLabel(l.id)}
+                          >
+                            {activeLabelIds.has(l.id) ? '✓ ' : ''}{l.name}
+                          </button>
+                          <button
+                            type="button"
+                            className="boardLabelPopoverDel"
+                            onClick={() => void onDeleteLabel(l.id)}
+                            aria-label="Sil"
+                          >×</button>
+                        </div>
                       ))}
                     </div>
-                    <button type="submit">Yeni etiket olustur</button>
-                  </form>
+                    <form className="boardLabelPopoverForm" onSubmit={handleCreateLabel}>
+                      <input
+                        placeholder="Yeni etiket adi"
+                        value={newLabelName}
+                        onChange={(e) => setNewLabelName(e.target.value)}
+                        maxLength={40}
+                      />
+                      <div className="boardLabelColors">
+                        {LABEL_COLORS.map((c) => (
+                          <button
+                            key={c}
+                            type="button"
+                            className="boardLabelColorSwatch"
+                            style={{ background: c, outline: newLabelColor === c ? '2px solid #fff' : 'none' }}
+                            onClick={() => setNewLabelColor(c)}
+                            aria-label={c}
+                          />
+                        ))}
+                      </div>
+                      <button type="submit">Yeni etiket olustur</button>
+                    </form>
+                  </div>
+                )}
+              </section>
+
+              <section className="boardModalRow">
+                <span className="boardModalLabel">Tarihler</span>
+                <div className="boardModalDates">
+                  <label>
+                    Baslangic
+                    <input
+                      type="date"
+                      value={startAt}
+                      disabled={readOnly}
+                      onChange={(e) => { setStartAt(e.target.value); commitDate('startAt', e.target.value); }}
+                    />
+                  </label>
+                  <label>
+                    Bitis
+                    <input
+                      type="date"
+                      value={dueAt}
+                      disabled={readOnly}
+                      onChange={(e) => { setDueAt(e.target.value); commitDate('dueAt', e.target.value); }}
+                    />
+                  </label>
                 </div>
+              </section>
+
+              <section className="boardModalRow">
+                <span className="boardModalLabel">Aciklama</span>
+                <textarea
+                  className="boardModalDesc"
+                  rows={6}
+                  value={description}
+                  disabled={readOnly}
+                  onChange={(e) => scheduleDescription(e.target.value)}
+                  placeholder="Bu kartla ilgili notlari buraya ekleyin..."
+                  maxLength={5000}
+                />
+              </section>
+
+              {!readOnly && (
+                <footer className="boardModalFooter">
+                  <button
+                    type="button"
+                    className="boardModalDelete"
+                    onClick={() => {
+                      if (confirm('Bu karti silmek istediginizden emin misiniz?')) void onDeleteCard();
+                    }}
+                  >
+                    Karti Sil
+                  </button>
+                </footer>
               )}
-            </section>
+            </div>
 
-            <section className="boardModalRow">
-              <span className="boardModalLabel">Tarihler</span>
-              <div className="boardModalDates">
-                <label>
-                  Baslangic
-                  <input
-                    type="date"
-                    value={startAt}
-                    disabled={readOnly}
-                    onChange={(e) => { setStartAt(e.target.value); commitDate('startAt', e.target.value); }}
-                  />
-                </label>
-                <label>
-                  Bitis
-                  <input
-                    type="date"
-                    value={dueAt}
-                    disabled={readOnly}
-                    onChange={(e) => { setDueAt(e.target.value); commitDate('dueAt', e.target.value); }}
-                  />
-                </label>
-              </div>
-            </section>
-
-            <section className="boardModalRow">
-              <span className="boardModalLabel">Aciklama</span>
-              <textarea
-                className="boardModalDesc"
-                rows={5}
-                value={description}
-                disabled={readOnly}
-                onChange={(e) => scheduleDescription(e.target.value)}
-                placeholder="Bu kartla ilgili notlari buraya ekleyin..."
-                maxLength={5000}
-              />
-            </section>
-
-            <section className="boardModalRow">
+            <aside className="boardModalRight">
               <div className="boardChecklistHeader">
                 <span className="boardModalLabel">Check-list</span>
-                <span className="boardChecklistProgress">
-                  {doneItems}/{totalItems}
-                </span>
+                <span className="boardChecklistProgress">{doneItems}/{totalItems}</span>
                 {totalItems > 0 && (
                   <button
                     type="button"
@@ -293,6 +319,11 @@ export function BoardCardModal({
                     onUpdateText={(text) => onUpdateChecklistItem(item.id, { text })}
                   />
                 ))}
+                {visibleChecklist.length === 0 && (
+                  <li className="boardChecklistEmpty">
+                    {hideDone && totalItems > 0 ? 'Tum maddeler tamamlandi' : 'Henuz madde yok'}
+                  </li>
+                )}
               </ul>
               {!readOnly && (
                 <form className="boardChecklistAdd" onSubmit={handleAddItem}>
@@ -305,21 +336,7 @@ export function BoardCardModal({
                   <button type="submit" disabled={!newItemText.trim()}>Ekle</button>
                 </form>
               )}
-            </section>
-
-            {!readOnly && (
-              <footer className="boardModalFooter">
-                <button
-                  type="button"
-                  className="boardModalDelete"
-                  onClick={() => {
-                    if (confirm('Bu karti silmek istediginizden emin misiniz?')) void onDeleteCard();
-                  }}
-                >
-                  Karti Sil
-                </button>
-              </footer>
-            )}
+            </aside>
           </div>
         </motion.div>
       </motion.div>

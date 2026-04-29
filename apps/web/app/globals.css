@@ -2533,18 +2533,20 @@ select[multiple] {
 /* === Board (focus mode, /board route) === */
 body[data-page="board"] {
   background:
-    radial-gradient(1100px 600px at 12% 10%, rgba(120, 70, 255, 0.22), transparent 60%),
-    radial-gradient(1000px 500px at 88% 0%, rgba(255, 110, 180, 0.18), transparent 65%),
-    radial-gradient(900px 540px at 50% 100%, rgba(0, 209, 182, 0.18), transparent 65%),
-    radial-gradient(700px 400px at 30% 60%, rgba(35, 164, 255, 0.12), transparent 70%),
+    linear-gradient(180deg, rgba(10, 15, 36, 0.72), rgba(14, 20, 48, 0.78) 55%, rgba(10, 12, 26, 0.82)),
+    radial-gradient(1100px 600px at 12% 10%, rgba(120, 70, 255, 0.28), transparent 60%),
+    radial-gradient(1000px 500px at 88% 0%, rgba(255, 110, 180, 0.22), transparent 65%),
+    radial-gradient(900px 540px at 50% 100%, rgba(0, 209, 182, 0.22), transparent 65%),
+    url('/arkaplan2.webp') center / cover no-repeat fixed,
     linear-gradient(180deg, #0a0f24, #0e1430 55%, #0a0c1a);
 }
 [data-theme="light"] body[data-page="board"] {
   background:
-    radial-gradient(1100px 600px at 12% 10%, rgba(120, 70, 255, 0.18), transparent 60%),
-    radial-gradient(1000px 500px at 88% 0%, rgba(255, 110, 180, 0.14), transparent 65%),
-    radial-gradient(900px 540px at 50% 100%, rgba(0, 209, 182, 0.18), transparent 65%),
-    radial-gradient(700px 400px at 30% 60%, rgba(35, 164, 255, 0.12), transparent 70%),
+    linear-gradient(180deg, rgba(240, 244, 252, 0.68), rgba(230, 236, 248, 0.72) 55%, rgba(223, 230, 244, 0.78)),
+    radial-gradient(1100px 600px at 12% 10%, rgba(120, 70, 255, 0.14), transparent 60%),
+    radial-gradient(1000px 500px at 88% 0%, rgba(255, 110, 180, 0.12), transparent 65%),
+    radial-gradient(900px 540px at 50% 100%, rgba(0, 209, 182, 0.16), transparent 65%),
+    url('/arkaplan2.webp') center / cover no-repeat fixed,
     linear-gradient(180deg, #f0f4fc, #e6ecf8 55%, #dfe6f4);
 }
 

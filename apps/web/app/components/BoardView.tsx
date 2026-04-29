@@ -289,10 +289,12 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
                           {card.labels.map(({ label }) => (
                             <span
                               key={label.id}
-                              className="boardLabelChip"
+                              className="boardLabelChipFull"
                               title={label.name}
                               style={{ background: label.color }}
-                            />
+                            >
+                              {label.name}
+                            </span>
                           ))}
                         </div>
                       )}

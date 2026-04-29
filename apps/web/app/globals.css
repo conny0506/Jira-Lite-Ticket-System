@@ -3070,19 +3070,68 @@ body[data-page="board"] {
 .boardChecklistItem {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   padding: 6px 8px;
   border-radius: 8px;
   transition: background 0.15s;
 }
 .boardChecklistItem:hover { background: rgba(255, 255, 255, 0.03); }
 
+.boardChecklistItem input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  border: 2px solid rgba(255, 255, 255, 0.28);
+  border-radius: 6px;
+  cursor: pointer;
+  position: relative;
+  background: rgba(0, 0, 0, 0.25);
+  flex-shrink: 0;
+  transition: border-color 0.18s, background 0.18s, transform 0.18s;
+}
+.boardChecklistItem input[type="checkbox"]:hover:not(:disabled) {
+  border-color: rgba(35, 164, 255, 0.6);
+  transform: scale(1.05);
+}
+.boardChecklistItem input[type="checkbox"]:disabled { cursor: not-allowed; opacity: 0.5; }
+.boardChecklistItem input[type="checkbox"]:checked {
+  background: linear-gradient(135deg, #00d1b6, #23a4ff);
+  border-color: transparent;
+  animation: boardCheckPop 0.42s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.boardChecklistItem input[type="checkbox"]:checked::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 1px;
+  width: 5px;
+  height: 10px;
+  border: solid #fff;
+  border-width: 0 2.5px 2.5px 0;
+  transform: rotate(45deg);
+  animation: boardCheckDraw 0.22s ease-out 0.08s both;
+}
+@keyframes boardCheckPop {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.28) rotate(-3deg); }
+  65%  { transform: scale(0.92) rotate(2deg); }
+  100% { transform: scale(1) rotate(0); }
+}
+@keyframes boardCheckDraw {
+  0%   { opacity: 0; transform: rotate(45deg) scale(0); }
+  60%  { opacity: 1; transform: rotate(45deg) scale(1.15); }
+  100% { opacity: 1; transform: rotate(45deg) scale(1); }
+}
+
 .boardChecklistText {
   flex: 1;
   font-size: 0.9rem;
   cursor: text;
   padding: 2px 4px;
-  transition: color 0.2s;
+  transition: color 0.3s, opacity 0.3s, text-decoration-color 0.3s;
 }
 .boardChecklistItem.isDone .boardChecklistText {
   text-decoration: line-through;
@@ -3116,29 +3165,47 @@ body[data-page="board"] {
 
 .boardChecklistAdd {
   display: flex;
-  gap: 6px;
-  margin-top: 6px;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
 .boardChecklistAdd input {
-  flex: 1;
-  background: rgba(0, 0, 0, 0.25);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   color: var(--text);
-  padding: 8px 10px;
-  border-radius: 8px;
-  font-size: 0.88rem;
+  padding: 11px 14px;
+  border-radius: 10px;
+  font-size: 0.95rem;
+  transition: border-color 0.18s, background 0.18s;
 }
-.boardChecklistAdd input:focus { outline: none; border-color: rgba(35, 164, 255, 0.5); }
+.boardChecklistAdd input::placeholder { color: rgba(255, 255, 255, 0.32); }
+.boardChecklistAdd input:focus {
+  outline: none;
+  border-color: rgba(35, 164, 255, 0.55);
+  background: rgba(35, 164, 255, 0.06);
+}
 .boardChecklistAdd button {
-  background: rgba(35, 164, 255, 0.85);
+  align-self: flex-end;
+  background: linear-gradient(135deg, rgba(35, 164, 255, 0.95), rgba(0, 209, 182, 0.9));
   color: #0a0c12;
   border: none;
-  padding: 6px 14px;
+  padding: 8px 22px;
   border-radius: 8px;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
+  font-size: 0.88rem;
+  transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s;
 }
-.boardChecklistAdd button:disabled { opacity: 0.4; cursor: not-allowed; }
+.boardChecklistAdd button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(35, 164, 255, 0.25);
+}
+.boardChecklistAdd button:disabled { opacity: 0.35; cursor: not-allowed; }
 
 .boardModalFooter {
   display: flex;

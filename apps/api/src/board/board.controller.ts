@@ -58,6 +58,15 @@ export class BoardController {
     return this.boardService.deleteCard(actorId, role, id);
   }
 
+  @Post('cards/:id/duplicate')
+  duplicateCard(
+    @CurrentUserId() actorId: string,
+    @CurrentUserRole() role: string,
+    @Param('id') id: string,
+  ) {
+    return this.boardService.duplicateCard(actorId, role, id);
+  }
+
   @Post('cards/bulk-delete')
   bulkDeleteCards(
     @CurrentUserId() actorId: string,

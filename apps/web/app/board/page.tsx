@@ -1,5 +1,6 @@
 'use client';
 
+import { AnimatePresence, motion } from 'framer-motion';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -77,7 +78,18 @@ export default function BoardPage() {
             aria-label="Tema değiştir"
             title={theme === 'dark' ? 'Açık moda geç' : 'Koyu moda geç'}
           >
-            {theme === 'dark' ? '☀' : '☾'}
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.span
+                key={theme}
+                initial={{ y: -16, opacity: 0, rotate: -90 }}
+                animate={{ y: 0, opacity: 1, rotate: 0 }}
+                exit={{ y: 16, opacity: 0, rotate: 90 }}
+                transition={{ duration: 0.28, ease: 'easeOut' }}
+                style={{ display: 'inline-block' }}
+              >
+                {theme === 'dark' ? '☀' : '☾'}
+              </motion.span>
+            </AnimatePresence>
           </button>
           <span className="boardUserAvatar" title={bundle.user.name}>
             {bundle.user.name.charAt(0).toUpperCase()}

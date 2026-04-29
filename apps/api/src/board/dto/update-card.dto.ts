@@ -1,4 +1,4 @@
-import { IsBoolean, IsISO8601, IsOptional, IsString, MaxLength, MinLength, ValidateIf } from 'class-validator';
+import { IsBoolean, IsEnum, IsISO8601, IsOptional, IsString, MaxLength, MinLength, ValidateIf } from 'class-validator';
 
 export class UpdateCardDto {
   @IsString()
@@ -6,6 +6,10 @@ export class UpdateCardDto {
   @MaxLength(200)
   @IsOptional()
   title?: string;
+
+  @IsEnum(['LOW', 'MEDIUM', 'HIGH'])
+  @IsOptional()
+  priority?: 'LOW' | 'MEDIUM' | 'HIGH';
 
   @ValidateIf((o) => o.description !== null)
   @IsString()

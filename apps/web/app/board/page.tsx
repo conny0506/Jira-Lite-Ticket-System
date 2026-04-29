@@ -6,16 +6,29 @@ import { useEffect, useState } from 'react';
 import { BoardView } from '../components/BoardView';
 import type { BoardAuthBundle } from '../lib/boardApi';
 
+type Theme = 'dark' | 'light';
+
 export default function BoardPage() {
   const router = useRouter();
   const [bundle, setBundle] = useState<BoardAuthBundle | null>(null);
   const [readOnly, setReadOnly] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
+  const [theme, setTheme] = useState<Theme>('dark');
 
   useEffect(() => {
     document.body.setAttribute('data-page', 'board');
     return () => document.body.removeAttribute('data-page');
   }, []);
+
+  useEffect(() => {
+    const stored = (localStorage.getItem('jira_theme') as Theme | null) ?? 'dark';
+    setTheme(stored);
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme === 'light' ? 'light' : '';
+    localStorage.setItem('jira_theme', theme);
+  }, [theme]);
 
   useEffect(() => {
     try {
@@ -57,6 +70,15 @@ export default function BoardPage() {
         <h1 className="boardTopTitle">Odak Panosu</h1>
         <div className="boardTopRight">
           {readOnly && <span className="boardReadOnlyBadge">Goruntuleme modu</span>}
+          <button
+            type="button"
+            className="boardThemeToggle"
+            onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+            aria-label="Tema değiştir"
+            title={theme === 'dark' ? 'Açık moda geç' : 'Koyu moda geç'}
+          >
+            {theme === 'dark' ? '☀' : '☾'}
+          </button>
           <span className="boardUserAvatar" title={bundle.user.name}>
             {bundle.user.name.charAt(0).toUpperCase()}
           </span>

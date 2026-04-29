@@ -10,6 +10,10 @@ export class CreateCardDto {
   @IsOptional()
   status?: 'TODO' | 'IN_PROGRESS' | 'DONE';
 
+  @IsEnum(['LOW', 'MEDIUM', 'HIGH'])
+  @IsOptional()
+  priority?: 'LOW' | 'MEDIUM' | 'HIGH';
+
   @IsString()
   @MaxLength(5000)
   @IsOptional()

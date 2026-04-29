@@ -1,7 +1,7 @@
 'use client';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { BoardCard, BoardCardPriority, BoardChecklistItem, BoardLabel } from '../lib/boardApi';
 
 const LABEL_COLORS = ['#23a4ff', '#00d1b6', '#f0b429', '#e74c3c', '#9b59b6', '#2ecc71', '#1abc9c', '#e67e22'];
@@ -12,6 +12,8 @@ const PRIORITY_META: Record<BoardCardPriority, { label: string; color: string; b
   HIGH: { label: 'Yüksek', color: '#7a0e1f', bg: 'linear-gradient(135deg,#ff8e8e,#e74c3c)' },
 };
 
+type SaveStatus = 'idle' | 'saving' | 'saved';
+
 type Props = {
   card: BoardCard;
   labels: BoardLabel[];
@@ -19,6 +21,7 @@ type Props = {
   onClose: () => void;
   onUpdateCard: (patch: { title?: string; description?: string | null; startAt?: string | null; dueAt?: string | null; hideCompletedChecklist?: boolean; priority?: BoardCardPriority }) => Promise<void>;
   onDeleteCard: () => Promise<void>;
+  onDuplicateCard?: () => Promise<void>;
   onSetLabels: (labelIds: string[]) => Promise<void>;
   onCreateLabel: (name: string, color: string) => Promise<BoardLabel | null>;
   onDeleteLabel: (labelId: string) => Promise<void>;
@@ -41,6 +44,7 @@ export function BoardCardModal({
   onClose,
   onUpdateCard,
   onDeleteCard,
+  onDuplicateCard,
   onSetLabels,
   onCreateLabel,
   onDeleteLabel,
@@ -57,8 +61,25 @@ export function BoardCardModal({
   const [labelPopoverOpen, setLabelPopoverOpen] = useState(false);
   const [newLabelName, setNewLabelName] = useState('');
   const [newLabelColor, setNewLabelColor] = useState(LABEL_COLORS[0]);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const titleDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const descDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const savedClearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const runUpdate = useCallback(
+    async (patch: Parameters<Props['onUpdateCard']>[0]) => {
+      setSaveStatus('saving');
+      try {
+        await onUpdateCard(patch);
+        setSaveStatus('saved');
+        if (savedClearTimer.current) clearTimeout(savedClearTimer.current);
+        savedClearTimer.current = setTimeout(() => setSaveStatus('idle'), 1800);
+      } catch {
+        setSaveStatus('idle');
+      }
+    },
+    [onUpdateCard],
+  );
 
   // Only re-init local state when modal switches to a different card.
   // Re-syncing on every card field change would clobber in-progress typing
@@ -74,11 +95,27 @@ export function BoardCardModal({
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        flushPending();
+        onClose();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+        e.preventDefault();
+        flushPending();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        flushPending();
+        onClose();
+        return;
+      }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onClose, title, description, card.id]);
 
   const activeLabelIds = useMemo(() => new Set(card.labels.map((l) => l.label.id)), [card.labels]);
 
@@ -95,7 +132,7 @@ export function BoardCardModal({
     if (titleDebounce.current) clearTimeout(titleDebounce.current);
     titleDebounce.current = setTimeout(() => {
       const trimmed = val.trim();
-      if (trimmed && trimmed !== card.title) void onUpdateCard({ title: trimmed });
+      if (trimmed && trimmed !== card.title) void runUpdate({ title: trimmed });
     }, 500);
   }
 
@@ -103,13 +140,27 @@ export function BoardCardModal({
     setDescription(val);
     if (descDebounce.current) clearTimeout(descDebounce.current);
     descDebounce.current = setTimeout(() => {
-      if (val !== (card.description ?? '')) void onUpdateCard({ description: val || null });
+      if (val !== (card.description ?? '')) void runUpdate({ description: val || null });
     }, 600);
   }
 
   function commitDate(field: 'startAt' | 'dueAt', val: string) {
     const iso = val ? new Date(val).toISOString() : null;
-    void onUpdateCard({ [field]: iso });
+    void runUpdate({ [field]: iso });
+  }
+
+  function flushPending() {
+    if (titleDebounce.current) {
+      clearTimeout(titleDebounce.current);
+      titleDebounce.current = null;
+      const trimmed = title.trim();
+      if (trimmed && trimmed !== card.title) void runUpdate({ title: trimmed });
+    }
+    if (descDebounce.current) {
+      clearTimeout(descDebounce.current);
+      descDebounce.current = null;
+      if (description !== (card.description ?? '')) void runUpdate({ description: description || null });
+    }
   }
 
   function toggleLabel(labelId: string) {
@@ -122,7 +173,7 @@ export function BoardCardModal({
   function toggleHideDone() {
     const next = !hideDone;
     setHideDone(next);
-    void onUpdateCard({ hideCompletedChecklist: next });
+    void runUpdate({ hideCompletedChecklist: next });
   }
 
   async function handleAddItem(e: React.FormEvent) {
@@ -169,7 +220,23 @@ export function BoardCardModal({
               disabled={readOnly}
               maxLength={200}
             />
-            <button type="button" className="boardModalClose" onClick={onClose} aria-label="Kapat">×</button>
+            <span
+              className={`boardSaveIndicator boardSaveIndicator-${saveStatus}`}
+              aria-live="polite"
+            >
+              {saveStatus === 'saving' && <><span className="boardSaveDot" /> Kaydediliyor</>}
+              {saveStatus === 'saved' && <>✓ Kaydedildi</>}
+            </span>
+            {!readOnly && onDuplicateCard && (
+              <button
+                type="button"
+                className="boardModalIconBtn"
+                onClick={() => void onDuplicateCard()}
+                title="Kartı kopyala"
+                aria-label="Kartı kopyala"
+              >📋</button>
+            )}
+            <button type="button" className="boardModalClose" onClick={() => { flushPending(); onClose(); }} aria-label="Kapat">×</button>
           </header>
 
           <div className="boardModalContent">
@@ -186,7 +253,7 @@ export function BoardCardModal({
                         type="button"
                         className={`boardPriorityChoice${active ? ' isActive' : ''}`}
                         style={active ? { background: m.bg, color: m.color, borderColor: 'transparent' } : undefined}
-                        onClick={() => { if (!readOnly && !active) void onUpdateCard({ priority: p }); }}
+                        onClick={() => { if (!readOnly && !active) void runUpdate({ priority: p }); }}
                         disabled={readOnly}
                       >
                         {m.label}
@@ -337,10 +404,11 @@ export function BoardCardModal({
                 )}
               </div>
               <ul className="boardChecklistList">
-                {visibleChecklist.map((item) => (
+                {visibleChecklist.map((item, idx) => (
                   <ChecklistRow
                     key={item.id}
                     item={item}
+                    index={idx}
                     readOnly={readOnly}
                     onToggle={(done) => onUpdateChecklistItem(item.id, { done })}
                     onDelete={() => onDeleteChecklistItem(item.id)}
@@ -374,12 +442,14 @@ export function BoardCardModal({
 
 function ChecklistRow({
   item,
+  index,
   readOnly,
   onToggle,
   onDelete,
   onUpdateText,
 }: {
   item: BoardChecklistItem;
+  index: number;
   readOnly: boolean;
   onToggle: (done: boolean) => Promise<void>;
   onDelete: () => Promise<void>;
@@ -398,7 +468,14 @@ function ChecklistRow({
   }
 
   return (
-    <li className={`boardChecklistItem${item.done ? ' isDone' : ''}`}>
+    <motion.li
+      layout
+      className={`boardChecklistItem${item.done ? ' isDone' : ''}`}
+      initial={{ opacity: 0, y: -6 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -6 }}
+      transition={{ duration: 0.22, delay: Math.min(index, 8) * 0.03, ease: 'easeOut' }}
+    >
       <input
         type="checkbox"
         checked={item.done}
@@ -433,6 +510,6 @@ function ChecklistRow({
           aria-label="Sil"
         >×</button>
       )}
-    </li>
+    </motion.li>
   );
 }

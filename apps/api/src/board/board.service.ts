@@ -132,6 +132,64 @@ export class BoardService {
     return updated;
   }
 
+  async duplicateCard(actorId: string, role: string, cardId: string) {
+    assertWriter(role);
+    const original = await this.prisma.boardCard.findUnique({
+      where: { id: cardId },
+      select: {
+        title: true,
+        description: true,
+        status: true,
+        priority: true,
+        startAt: true,
+        dueAt: true,
+        hideCompletedChecklist: true,
+        labels: { select: { labelId: true } },
+        checklist: { select: { text: true, done: true, position: true } },
+      },
+    });
+    if (!original) throw new NotFoundException('Kart bulunamadi');
+    const last = await this.prisma.boardCard.findFirst({
+      where: { status: original.status },
+      orderBy: { position: 'desc' },
+      select: { position: true },
+    });
+    const newPosition = last ? last.position + 1 : 0;
+    const created = await this.prisma.boardCard.create({
+      data: {
+        title: `${original.title} (kopya)`,
+        description: original.description,
+        status: original.status,
+        priority: original.priority,
+        startAt: original.startAt,
+        dueAt: original.dueAt,
+        hideCompletedChecklist: original.hideCompletedChecklist,
+        position: newPosition,
+        createdById: actorId,
+        labels: original.labels.length
+          ? { createMany: { data: original.labels.map((l) => ({ labelId: l.labelId })) } }
+          : undefined,
+        checklist: original.checklist.length
+          ? {
+              createMany: {
+                data: original.checklist.map((c) => ({
+                  text: c.text,
+                  done: c.done,
+                  position: c.position,
+                })),
+              },
+            }
+          : undefined,
+      },
+      select: cardSelect,
+    });
+    await this.auditLogs.log(actorId, 'BOARD_CARD_DUPLICATE', 'BOARD_CARD', created.id, {
+      sourceId: cardId,
+      title: created.title,
+    });
+    return created;
+  }
+
   async deleteCard(actorId: string, role: string, cardId: string) {
     assertWriter(role);
     const exists = await this.prisma.boardCard.findUnique({ where: { id: cardId }, select: { id: true, title: true } });

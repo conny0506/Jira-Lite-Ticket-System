@@ -1,7 +1,7 @@
 'use client';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import { DragEvent, FormEvent, useCallback, useEffect, useState } from 'react';
+import { DragEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BoardApiError,
   BoardAuthBundle,
@@ -12,6 +12,8 @@ import {
   boardFetch,
 } from '../lib/boardApi';
 import { BoardCardModal } from './BoardCardModal';
+import { BoardKeyboardHelp } from './BoardKeyboardHelp';
+import { BoardSkeleton } from './BoardSkeleton';
 
 const COLUMNS: { status: BoardCardStatus; label: string; accent: string }[] = [
   { status: 'TODO', label: 'To Do', accent: '#23a4ff' },
@@ -25,13 +27,48 @@ export const PRIORITY_META: Record<BoardCardPriority, { label: string; color: st
   HIGH: { label: 'Yüksek', color: '#7a0e1f', bg: 'linear-gradient(135deg,#ff8e8e,#e74c3c)' },
 };
 
+type DateStatus = 'overdue' | 'soon' | 'normal' | null;
+type DateFilter = 'all' | 'overdue' | 'today' | 'week' | 'none';
+
+function getDateStatus(dueAt: string | null): DateStatus {
+  if (!dueAt) return null;
+  const due = new Date(dueAt).getTime();
+  if (Number.isNaN(due)) return null;
+  const now = Date.now();
+  const diff = due - now;
+  const oneDay = 24 * 60 * 60 * 1000;
+  if (diff < 0) return 'overdue';
+  if (diff <= 3 * oneDay) return 'soon';
+  return 'normal';
+}
+
+function daysFromNow(dueAt: string): number {
+  const due = new Date(dueAt).getTime();
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  return Math.ceil((due - today.getTime()) / (24 * 60 * 60 * 1000));
+}
+
 type Props = {
   bundle: BoardAuthBundle;
   readOnly: boolean;
   onAuthError: () => void;
 };
 
-type Toast = { kind: 'success' | 'error'; msg: string } | null;
+type Toast = { kind: 'success' | 'error' | 'info'; msg: string } | null;
+
+type FilterState = {
+  text: string;
+  priorities: Set<BoardCardPriority>;
+  labelIds: Set<string>;
+  date: DateFilter;
+};
+
+const EMPTY_FILTER: FilterState = {
+  text: '',
+  priorities: new Set(),
+  labelIds: new Set(),
+  date: 'all',
+};
 
 export function BoardView({ bundle, readOnly, onAuthError }: Props) {
   const [cards, setCards] = useState<BoardCard[]>([]);
@@ -43,12 +80,18 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
   const [newCardPriority, setNewCardPriority] = useState<BoardCardPriority>('MEDIUM');
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [overColumn, setOverColumn] = useState<BoardCardStatus | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ cardId: string; pos: 'before' | 'after' } | null>(null);
   const [toast, setToast] = useState<Toast>(null);
   const [recentlyCreatedId, setRecentlyCreatedId] = useState<string | null>(null);
   const [bulkMode, setBulkMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [filter, setFilter] = useState<FilterState>(EMPTY_FILTER);
+  const [labelPickerOpen, setLabelPickerOpen] = useState(false);
+  const [quickMenuId, setQuickMenuId] = useState<string | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const searchRef = useRef<HTMLInputElement | null>(null);
 
-  const showToast = useCallback((kind: 'success' | 'error', msg: string) => {
+  const showToast = useCallback((kind: NonNullable<Toast>['kind'], msg: string) => {
     setToast({ kind, msg });
     setTimeout(() => setToast(null), 2400);
   }, []);
@@ -84,6 +127,62 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
     })();
     return () => { cancelled = true; };
   }, [bundle, handleApiError]);
+
+  // ?card=<id> permalink → modal aç
+  useEffect(() => {
+    if (loading) return;
+    const params = new URLSearchParams(window.location.search);
+    const cardParam = params.get('card');
+    if (cardParam && cards.some((c) => c.id === cardParam)) {
+      setOpenCardId(cardParam);
+    }
+  }, [loading, cards]);
+
+  // global klavye kısayolları
+  useEffect(() => {
+    function isEditable(t: EventTarget | null): boolean {
+      if (!t || !(t instanceof HTMLElement)) return false;
+      const tag = t.tagName;
+      return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable;
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === '?' && !isEditable(e.target)) {
+        e.preventDefault();
+        setHelpOpen((v) => !v);
+        return;
+      }
+      if (e.key === 'Escape') {
+        if (helpOpen) { setHelpOpen(false); return; }
+        if (quickMenuId) { setQuickMenuId(null); return; }
+        if (addingTo) { setAddingTo(null); setNewCardTitle(''); return; }
+        // filter dolu ise temizle
+        if (filter.text || filter.priorities.size || filter.labelIds.size || filter.date !== 'all') {
+          setFilter(EMPTY_FILTER);
+        }
+        return;
+      }
+      if (isEditable(e.target)) return;
+      if (e.key === '/') {
+        e.preventDefault();
+        searchRef.current?.focus();
+        return;
+      }
+      if ((e.key === 'n' || e.key === 'N') && !readOnly) {
+        e.preventDefault();
+        setAddingTo('TODO');
+        setNewCardTitle('');
+        return;
+      }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && bulkMode && selectedIds.size > 0) {
+        e.preventDefault();
+        void handleBulkDelete();
+        return;
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [helpOpen, quickMenuId, addingTo, filter, bulkMode, selectedIds, readOnly]);
 
   function exitBulkMode() {
     setBulkMode(false);
@@ -137,23 +236,50 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
     }
   }
 
-  async function handleMoveCard(cardId: string, status: BoardCardStatus) {
+  async function handleMoveAndReorder(
+    cardId: string,
+    targetStatus: BoardCardStatus,
+    targetCardId: string | null,
+    targetPos: 'before' | 'after',
+  ) {
     const card = cards.find((c) => c.id === cardId);
-    if (!card || card.status === status) return;
-    const positionInTarget = cards.filter((c) => c.status === status).length;
+    if (!card) return;
+    const others = cards
+      .filter((c) => c.status === targetStatus && c.id !== cardId)
+      .sort((a, b) => a.position - b.position);
+    let insertIdx: number;
+    if (!targetCardId) {
+      insertIdx = others.length;
+    } else {
+      const tIdx = others.findIndex((c) => c.id === targetCardId);
+      insertIdx = tIdx < 0 ? others.length : targetPos === 'before' ? tIdx : tIdx + 1;
+    }
+    const newOrder = [...others.slice(0, insertIdx), { ...card, status: targetStatus }, ...others.slice(insertIdx)];
+    const updates = newOrder.map((c, i) => ({ id: c.id, status: targetStatus, position: i }));
+    const original = cards;
+    // optimistic
     setCards((prev) =>
-      prev.map((c) => (c.id === cardId ? { ...c, status, position: positionInTarget } : c)),
+      prev.map((c) => {
+        const u = updates.find((u) => u.id === c.id);
+        return u ? { ...c, status: u.status, position: u.position } : c;
+      }),
     );
     try {
-      await boardFetch(bundle, `/board/cards/${cardId}/move`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status, position: positionInTarget }),
+      const changed = updates.filter((u) => {
+        const orig = original.find((c) => c.id === u.id);
+        return !orig || orig.status !== u.status || orig.position !== u.position;
       });
-    } catch (err) {
-      handleApiError(err, 'Kart tasinamadi');
-      setCards((prev) =>
-        prev.map((c) => (c.id === cardId ? { ...c, status: card.status, position: card.position } : c)),
+      await Promise.all(
+        changed.map((u) =>
+          boardFetch(bundle, `/board/cards/${u.id}/move`, {
+            method: 'PATCH',
+            body: JSON.stringify({ status: u.status, position: u.position }),
+          }),
+        ),
       );
+    } catch (err) {
+      handleApiError(err, 'Sıralama kaydedilemedi');
+      setCards(original);
     }
   }
 
@@ -166,38 +292,8 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
     const idx = sameCol.findIndex((c) => c.id === cardId);
     const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
     if (swapIdx < 0 || swapIdx >= sameCol.length) return;
-    const other = sameCol[swapIdx];
-    const newPosA = other.position;
-    const newPosB = card.position;
-    setCards((prev) =>
-      prev.map((c) => {
-        if (c.id === card.id) return { ...c, position: newPosA };
-        if (c.id === other.id) return { ...c, position: newPosB };
-        return c;
-      }),
-    );
-    try {
-      await Promise.all([
-        boardFetch(bundle, `/board/cards/${card.id}/move`, {
-          method: 'PATCH',
-          body: JSON.stringify({ status: card.status, position: newPosA }),
-        }),
-        boardFetch(bundle, `/board/cards/${other.id}/move`, {
-          method: 'PATCH',
-          body: JSON.stringify({ status: other.status, position: newPosB }),
-        }),
-      ]);
-    } catch (err) {
-      handleApiError(err, 'Sıralama kaydedilemedi');
-      // revert
-      setCards((prev) =>
-        prev.map((c) => {
-          if (c.id === card.id) return { ...c, position: card.position };
-          if (c.id === other.id) return { ...c, position: other.position };
-          return c;
-        }),
-      );
-    }
+    const target = sameCol[swapIdx];
+    await handleMoveAndReorder(cardId, card.status, target.id, direction === 'up' ? 'before' : 'after');
   }
 
   async function patchCard(cardId: string, patch: Record<string, unknown>) {
@@ -207,8 +303,10 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
         body: JSON.stringify(patch),
       });
       setCards((prev) => prev.map((c) => (c.id === cardId ? updated : c)));
+      return updated;
     } catch (err) {
       handleApiError(err, 'Kart guncellenemedi');
+      return null;
     }
   }
 
@@ -220,6 +318,28 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
       showToast('success', 'Kart silindi');
     } catch (err) {
       handleApiError(err, 'Kart silinemedi');
+    }
+  }
+
+  async function duplicateCard(cardId: string) {
+    try {
+      const card = await boardFetch<BoardCard>(bundle, `/board/cards/${cardId}/duplicate`, { method: 'POST' });
+      setCards((prev) => [...prev, card]);
+      setRecentlyCreatedId(card.id);
+      setTimeout(() => setRecentlyCreatedId(null), 600);
+      showToast('success', 'Kart kopyalandı');
+    } catch (err) {
+      handleApiError(err, 'Kart kopyalanamadı');
+    }
+  }
+
+  function copyPermalink(cardId: string) {
+    try {
+      const url = `${window.location.origin}/board?card=${cardId}`;
+      navigator.clipboard?.writeText(url);
+      showToast('success', 'Link kopyalandı');
+    } catch {
+      showToast('error', 'Link kopyalanamadı');
     }
   }
 
@@ -309,34 +429,229 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
   function handleDragStart(e: DragEvent, cardId: string) {
     if (readOnly || bulkMode) return;
     e.dataTransfer.setData('boardCardId', cardId);
+    e.dataTransfer.effectAllowed = 'move';
     setDraggingId(cardId);
   }
 
-  function handleDrop(e: DragEvent, status: BoardCardStatus) {
-    e.preventDefault();
-    setOverColumn(null);
-    setDraggingId(null);
+  function handleCardDragOver(e: DragEvent, cardId: string, status: BoardCardStatus) {
     if (readOnly || bulkMode) return;
+    if (!draggingId || draggingId === cardId) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const target = e.currentTarget as HTMLElement;
+    const rect = target.getBoundingClientRect();
+    const midpoint = rect.top + rect.height / 2;
+    const pos: 'before' | 'after' = e.clientY < midpoint ? 'before' : 'after';
+    setOverColumn(status);
+    setDropTarget((cur) => (cur?.cardId === cardId && cur.pos === pos ? cur : { cardId, pos }));
+  }
+
+  function handleColumnDrop(e: DragEvent, status: BoardCardStatus) {
+    e.preventDefault();
+    if (readOnly || bulkMode) {
+      setDraggingId(null);
+      setDropTarget(null);
+      setOverColumn(null);
+      return;
+    }
     const cardId = e.dataTransfer.getData('boardCardId');
-    if (cardId) void handleMoveCard(cardId, status);
+    const tgt = dropTarget;
+    setOverColumn(null);
+    setDropTarget(null);
+    setDraggingId(null);
+    if (!cardId) return;
+    void handleMoveAndReorder(cardId, status, tgt?.cardId ?? null, tgt?.pos ?? 'after');
+  }
+
+  // ----- filtered cards -----
+  const filteredCards = useMemo(() => {
+    const text = filter.text.trim().toLowerCase();
+    return cards.filter((c) => {
+      if (text) {
+        const hay = `${c.title} ${c.description ?? ''}`.toLowerCase();
+        if (!hay.includes(text)) return false;
+      }
+      if (filter.priorities.size > 0 && !filter.priorities.has(c.priority ?? 'MEDIUM')) return false;
+      if (filter.labelIds.size > 0) {
+        const cardLabelIds = new Set(c.labels.map((l) => l.label.id));
+        if (![...filter.labelIds].some((id) => cardLabelIds.has(id))) return false;
+      }
+      if (filter.date !== 'all') {
+        const due = c.dueAt ? new Date(c.dueAt) : null;
+        if (filter.date === 'none') {
+          if (due) return false;
+        } else if (!due) {
+          return false;
+        } else {
+          const today = new Date(); today.setHours(0, 0, 0, 0);
+          const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1);
+          if (filter.date === 'overdue' && due >= tomorrow) return false;
+          if (filter.date === 'today' && (due < today || due >= tomorrow)) return false;
+          if (filter.date === 'week') {
+            const weekEnd = new Date(today); weekEnd.setDate(weekEnd.getDate() + 7);
+            if (due < today || due >= weekEnd) return false;
+          }
+        }
+      }
+      return true;
+    });
+  }, [cards, filter]);
+
+  const filterActive =
+    !!filter.text || filter.priorities.size > 0 || filter.labelIds.size > 0 || filter.date !== 'all';
+
+  function togglePriorityFilter(p: BoardCardPriority) {
+    setFilter((prev) => {
+      const next = new Set(prev.priorities);
+      if (next.has(p)) next.delete(p);
+      else next.add(p);
+      return { ...prev, priorities: next };
+    });
+  }
+  function toggleLabelFilter(id: string) {
+    setFilter((prev) => {
+      const next = new Set(prev.labelIds);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return { ...prev, labelIds: next };
+    });
+  }
+  function setDateFilter(d: DateFilter) {
+    setFilter((prev) => ({ ...prev, date: d }));
   }
 
   const openCard = openCardId ? cards.find((c) => c.id === openCardId) ?? null : null;
 
-  return (
-    <div className="boardShell">
-      {toast && (
-        <div className={`boardToast boardToast-${toast.kind}`}>{toast.msg}</div>
-      )}
+  if (loading) return <BoardSkeleton />;
 
+  return (
+    <div className="boardShell" data-bulk={bulkMode ? 'true' : 'false'}>
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            key={toast.msg}
+            className={`boardToast boardToast-${toast.kind}`}
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+          >
+            {toast.msg}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ---- Filtre bar ---- */}
+      <div className="boardFilterBar">
+        <div className="boardFilterSearch">
+          <span className="boardFilterIcon">⌕</span>
+          <input
+            ref={searchRef}
+            type="text"
+            placeholder="Kart ara... (/)"
+            value={filter.text}
+            onChange={(e) => setFilter((p) => ({ ...p, text: e.target.value }))}
+          />
+          {filter.text && (
+            <button
+              type="button"
+              className="boardFilterClearBtn"
+              onClick={() => setFilter((p) => ({ ...p, text: '' }))}
+              aria-label="Aramayı temizle"
+            >×</button>
+          )}
+        </div>
+
+        <div className="boardFilterChips">
+          {(['LOW', 'MEDIUM', 'HIGH'] as BoardCardPriority[]).map((p) => {
+            const m = PRIORITY_META[p];
+            const active = filter.priorities.has(p);
+            return (
+              <button
+                key={p}
+                type="button"
+                className={`boardFilterChip${active ? ' isActive' : ''}`}
+                style={active ? { background: m.bg, color: m.color, borderColor: 'transparent' } : undefined}
+                onClick={() => togglePriorityFilter(p)}
+              >
+                {m.label}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="boardFilterChips">
+          {(['all', 'overdue', 'today', 'week', 'none'] as DateFilter[]).map((d) => {
+            const labelMap: Record<DateFilter, string> = {
+              all: 'Tüm tarihler', overdue: 'Gecikmiş', today: 'Bugün', week: 'Bu hafta', none: 'Tarihsiz',
+            };
+            return (
+              <button
+                key={d}
+                type="button"
+                className={`boardFilterChip${filter.date === d ? ' isActive' : ''}`}
+                onClick={() => setDateFilter(d)}
+              >
+                {labelMap[d]}
+              </button>
+            );
+          })}
+        </div>
+
+        {labels.length > 0 && (
+          <div className="boardFilterLabelWrap">
+            <button
+              type="button"
+              className={`boardFilterChip${filter.labelIds.size > 0 ? ' isActive' : ''}`}
+              onClick={() => setLabelPickerOpen((v) => !v)}
+            >
+              Etiket {filter.labelIds.size > 0 ? `(${filter.labelIds.size})` : ''}
+            </button>
+            {labelPickerOpen && (
+              <div className="boardFilterLabelPopover">
+                {labels.map((l) => {
+                  const active = filter.labelIds.has(l.id);
+                  return (
+                    <button
+                      key={l.id}
+                      type="button"
+                      className="boardFilterLabelOption"
+                      onClick={() => toggleLabelFilter(l.id)}
+                    >
+                      <span className="boardFilterLabelDot" style={{ background: l.color }} />
+                      <span>{l.name}</span>
+                      {active && <span className="boardFilterLabelCheck">✓</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {filterActive && (
+          <button
+            type="button"
+            className="boardFilterClearAll"
+            onClick={() => setFilter(EMPTY_FILTER)}
+          >
+            Temizle
+          </button>
+        )}
+
+        <button
+          type="button"
+          className="boardFilterHelpBtn"
+          onClick={() => setHelpOpen(true)}
+          aria-label="Klavye kısayolları"
+          title="Klavye kısayolları (?)"
+        >?</button>
+      </div>
+
+      {/* ---- Action bar (bulk) ---- */}
       {!readOnly && (
         <div className="boardActionBar">
           {!bulkMode ? (
-            <button
-              type="button"
-              className="boardActionBtn"
-              onClick={() => setBulkMode(true)}
-            >
+            <button type="button" className="boardActionBtn" onClick={() => setBulkMode(true)}>
               ✓ Toplu Seç
             </button>
           ) : (
@@ -352,11 +667,7 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
               >
                 Seçilenleri Sil
               </button>
-              <button
-                type="button"
-                className="boardActionBtn"
-                onClick={exitBulkMode}
-              >
+              <button type="button" className="boardActionBtn" onClick={exitBulkMode}>
                 Vazgeç
               </button>
             </>
@@ -364,11 +675,13 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
         </div>
       )}
 
+      {/* ---- Kolonlar ---- */}
       <div className="boardColumns">
         {COLUMNS.map((col, colIndex) => {
-          const colCards = cards
+          const colCards = filteredCards
             .filter((c) => c.status === col.status)
             .sort((a, b) => a.position - b.position);
+          const totalInColumn = cards.filter((c) => c.status === col.status).length;
           const isOver = overColumn === col.status;
           return (
             <motion.section
@@ -380,106 +693,181 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
               initial={{ opacity: 0, y: 24 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.35, delay: colIndex * 0.08, ease: 'easeOut' }}
-              onDragOver={(e) => { if (!readOnly && !bulkMode) { e.preventDefault(); setOverColumn(col.status); } }}
-              onDragLeave={() => setOverColumn(null)}
-              onDrop={(e) => handleDrop(e, col.status)}
+              onDragOver={(e) => {
+                if (!readOnly && !bulkMode) {
+                  e.preventDefault();
+                  setOverColumn(col.status);
+                }
+              }}
+              onDragLeave={(e) => {
+                const next = e.relatedTarget as Node | null;
+                if (!next || !(e.currentTarget as Node).contains(next)) {
+                  setOverColumn(null);
+                  setDropTarget(null);
+                }
+              }}
+              onDrop={(e) => handleColumnDrop(e, col.status)}
             >
               <header className="boardColumnHeader">
                 <span style={{ color: col.accent }}>{col.label}</span>
-                <span className="boardColumnCount">{colCards.length}</span>
+                <span className="boardColumnCount" key={totalInColumn} data-tick="true">{totalInColumn}</span>
               </header>
 
               <div className="boardCardList">
+                {colCards.length === 0 && totalInColumn === 0 && !readOnly && (
+                  <div className="boardEmptyHint">İlk kartı buraya ekle</div>
+                )}
+                {colCards.length === 0 && totalInColumn > 0 && (
+                  <div className="boardEmptyHint">Filtreyle eşleşen kart yok</div>
+                )}
                 <AnimatePresence>
                   {colCards.map((card, cardIdx) => {
                     const priority = card.priority ?? 'MEDIUM';
                     const meta = PRIORITY_META[priority];
                     const selected = selectedIds.has(card.id);
+                    const dueStatus = getDateStatus(card.dueAt);
+                    const isHighOverdue = priority === 'HIGH' && dueStatus === 'overdue';
+                    const checklistDone = card.checklist.filter((i) => i.done).length;
+                    const checklistTotal = card.checklist.length;
+                    const checklistPct = checklistTotal > 0 ? (checklistDone / checklistTotal) * 100 : 0;
+                    const showInsertBefore = dropTarget?.cardId === card.id && dropTarget.pos === 'before' && draggingId !== card.id;
+                    const showInsertAfter = dropTarget?.cardId === card.id && dropTarget.pos === 'after' && draggingId !== card.id;
                     return (
-                      <motion.article
-                        key={card.id}
-                        layout
-                        className={`boardCard${recentlyCreatedId === card.id ? ' isNew' : ''}${selected ? ' isSelected' : ''}`}
-                        data-priority={priority}
-                        style={{ opacity: draggingId === card.id ? 0.4 : 1 }}
-                        initial={{ opacity: 0, scale: 0.9, y: -8 }}
-                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.85, x: 30 }}
-                        transition={{ type: 'spring', stiffness: 380, damping: 22 }}
-                        whileHover={readOnly ? undefined : { y: -3 }}
-                        draggable={!readOnly && !bulkMode}
-                        onDragStart={(e) => handleDragStart(e as unknown as DragEvent, card.id)}
-                        onDragEnd={() => { setDraggingId(null); setOverColumn(null); }}
-                        onClick={() => {
-                          if (bulkMode) toggleSelect(card.id);
-                          else setOpenCardId(card.id);
-                        }}
-                      >
-                        <div className="boardCardTopRow">
-                          {bulkMode && (
-                            <span
-                              className={`boardCardSelectBox${selected ? ' isChecked' : ''}`}
-                              aria-label="Sec"
-                            >
-                              {selected ? '✓' : ''}
-                            </span>
-                          )}
-                          <span
-                            className="boardPriorityBadge"
-                            style={{ background: meta.bg, color: meta.color }}
-                            title={`Öncelik: ${meta.label}`}
-                          >
-                            {meta.label}
-                          </span>
-                        </div>
-                        {card.labels.length > 0 && (
-                          <div className="boardCardLabels">
-                            {card.labels.map(({ label }) => (
-                              <span
-                                key={label.id}
-                                className="boardLabelChipFull"
-                                title={label.name}
-                                style={{ background: label.color }}
-                              >
-                                {label.name}
+                      <div key={card.id} className="boardCardSlot">
+                        {showInsertBefore && <div className="boardDropIndicator" />}
+                        <motion.article
+                          layout
+                          className={`boardCard${recentlyCreatedId === card.id ? ' isNew' : ''}${selected ? ' isSelected' : ''}${draggingId === card.id ? ' isDragging' : ''}${isHighOverdue ? ' isHighOverdue' : ''}`}
+                          data-priority={priority}
+                          initial={{ opacity: 0, scale: 0.9, y: -8 }}
+                          animate={{ opacity: 1, scale: 1, y: 0 }}
+                          exit={{ opacity: 0, scale: 0.85, x: 30 }}
+                          transition={{ type: 'spring', stiffness: 380, damping: 22 }}
+                          whileHover={readOnly ? undefined : { y: -3 }}
+                          draggable={!readOnly && !bulkMode}
+                          onDragStart={(e) => handleDragStart(e as unknown as DragEvent, card.id)}
+                          onDragOver={(e) => handleCardDragOver(e as unknown as DragEvent, card.id, col.status)}
+                          onDragEnd={() => { setDraggingId(null); setOverColumn(null); setDropTarget(null); }}
+                          onClick={() => {
+                            if (bulkMode) toggleSelect(card.id);
+                            else setOpenCardId(card.id);
+                          }}
+                        >
+                          <div className="boardCardTopRow">
+                            {bulkMode && (
+                              <span className={`boardCardSelectBox${selected ? ' isChecked' : ''}`} aria-label="Sec">
+                                {selected ? '✓' : ''}
                               </span>
-                            ))}
-                          </div>
-                        )}
-                        <h3 className="boardCardTitle">{card.title}</h3>
-                        <div className="boardCardMeta">
-                          {card.dueAt && (
-                            <span className="boardCardMetaItem" title="Bitis">
-                              📅 {new Date(card.dueAt).toLocaleDateString('tr-TR', { day: '2-digit', month: 'short' })}
+                            )}
+                            <span
+                              className="boardPriorityBadge"
+                              style={{ background: meta.bg, color: meta.color }}
+                              title={`Öncelik: ${meta.label}`}
+                            >
+                              {meta.label}
                             </span>
-                          )}
-                          {card.checklist.length > 0 && (
-                            <span className="boardCardMetaItem" title="Check-list">
-                              ☑ {card.checklist.filter((i) => i.done).length}/{card.checklist.length}
-                            </span>
-                          )}
-                        </div>
-                        {!readOnly && !bulkMode && (
-                          <div className="boardCardReorder">
-                            <button
-                              type="button"
-                              className="boardCardReorderBtn"
-                              disabled={cardIdx === 0}
-                              onClick={(e) => { e.stopPropagation(); void reorderWithinColumn(card.id, 'up'); }}
-                              aria-label="Yukari tasi"
-                              title="Yukari tasi"
-                            >▲</button>
-                            <button
-                              type="button"
-                              className="boardCardReorderBtn"
-                              disabled={cardIdx === colCards.length - 1}
-                              onClick={(e) => { e.stopPropagation(); void reorderWithinColumn(card.id, 'down'); }}
-                              aria-label="Asagi tasi"
-                              title="Asagi tasi"
-                            >▼</button>
+                            {!readOnly && !bulkMode && (
+                              <button
+                                type="button"
+                                className="boardCardQuickBtn"
+                                aria-label="Hızlı eylemler"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setQuickMenuId((cur) => (cur === card.id ? null : card.id));
+                                }}
+                              >⋯</button>
+                            )}
+                            {quickMenuId === card.id && (
+                              <div
+                                className="boardCardQuickMenu"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <button type="button" onClick={() => { void duplicateCard(card.id); setQuickMenuId(null); }}>
+                                  📋 Kopyala
+                                </button>
+                                <button type="button" onClick={() => { copyPermalink(card.id); setQuickMenuId(null); }}>
+                                  🔗 Linki kopyala
+                                </button>
+                                <button
+                                  type="button"
+                                  className="isDanger"
+                                  onClick={() => {
+                                    if (confirm('Bu karti silmek istediginizden emin misiniz?')) void deleteCard(card.id);
+                                    setQuickMenuId(null);
+                                  }}
+                                >
+                                  🗑 Sil
+                                </button>
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </motion.article>
+                          {card.labels.length > 0 && (
+                            <div className="boardCardLabels">
+                              {card.labels.map(({ label }) => (
+                                <span
+                                  key={label.id}
+                                  className="boardLabelChipFull"
+                                  title={label.name}
+                                  style={{ background: label.color }}
+                                >
+                                  {label.name}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          <h3 className="boardCardTitle">{card.title}</h3>
+                          {checklistTotal > 0 && (
+                            <div className="boardCardProgress" title={`${checklistDone}/${checklistTotal}`}>
+                              <div className="boardCardProgressBar" style={{ width: `${checklistPct}%` }} />
+                            </div>
+                          )}
+                          <div className="boardCardMeta">
+                            {card.dueAt && (
+                              <span
+                                className={`boardCardMetaItem boardDueBadge${dueStatus ? ` boardDueBadge-${dueStatus}` : ''}`}
+                                title={dueStatus === 'overdue'
+                                  ? `${Math.abs(daysFromNow(card.dueAt))} gün gecikmiş`
+                                  : dueStatus === 'soon'
+                                  ? `${daysFromNow(card.dueAt)} gün içinde`
+                                  : 'Bitiş'}
+                              >
+                                📅 {new Date(card.dueAt).toLocaleDateString('tr-TR', { day: '2-digit', month: 'short' })}
+                                {dueStatus === 'overdue' && <span className="boardDueLabel"> · Gecikmiş</span>}
+                                {dueStatus === 'soon' && <span className="boardDueLabel"> · Yakında</span>}
+                              </span>
+                            )}
+                            {checklistTotal > 0 && (
+                              <span className="boardCardMetaItem" title="Check-list">
+                                ☑ {checklistDone}/{checklistTotal}
+                              </span>
+                            )}
+                            {card.description && (
+                              <span className="boardCardMetaItem" title="Açıklama var">📝</span>
+                            )}
+                          </div>
+                          {!readOnly && !bulkMode && (
+                            <div className="boardCardReorder">
+                              <button
+                                type="button"
+                                className="boardCardReorderBtn"
+                                disabled={cardIdx === 0}
+                                onClick={(e) => { e.stopPropagation(); void reorderWithinColumn(card.id, 'up'); }}
+                                aria-label="Yukari tasi"
+                                title="Yukari tasi"
+                              >▲</button>
+                              <button
+                                type="button"
+                                className="boardCardReorderBtn"
+                                disabled={cardIdx === colCards.length - 1}
+                                onClick={(e) => { e.stopPropagation(); void reorderWithinColumn(card.id, 'down'); }}
+                                aria-label="Asagi tasi"
+                                title="Asagi tasi"
+                              >▼</button>
+                            </div>
+                          )}
+                        </motion.article>
+                        {showInsertAfter && <div className="boardDropIndicator" />}
+                      </div>
                     );
                   })}
                 </AnimatePresence>
@@ -537,8 +925,6 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
         })}
       </div>
 
-      {loading && <p className="muted" style={{ textAlign: 'center' }}>Yukleniyor...</p>}
-
       <AnimatePresence>
         {openCard && (
           <BoardCardModal
@@ -546,9 +932,19 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
             card={openCard}
             labels={labels}
             readOnly={readOnly}
-            onClose={() => setOpenCardId(null)}
-            onUpdateCard={(patch) => patchCard(openCard.id, patch)}
+            onClose={() => {
+              setOpenCardId(null);
+              // ?card= varsa URL'i temizle
+              const params = new URLSearchParams(window.location.search);
+              if (params.has('card')) {
+                params.delete('card');
+                const next = params.toString();
+                window.history.replaceState({}, '', next ? `?${next}` : window.location.pathname);
+              }
+            }}
+            onUpdateCard={(patch) => patchCard(openCard.id, patch).then(() => undefined)}
             onDeleteCard={() => deleteCard(openCard.id)}
+            onDuplicateCard={() => duplicateCard(openCard.id)}
             onSetLabels={(ids) => setCardLabels(openCard.id, ids)}
             onCreateLabel={createLabel}
             onDeleteLabel={deleteLabel}
@@ -557,6 +953,10 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
             onDeleteChecklistItem={(itemId) => deleteChecklistItem(openCard.id, itemId)}
           />
         )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {helpOpen && <BoardKeyboardHelp onClose={() => setHelpOpen(false)} />}
       </AnimatePresence>
     </div>
   );

@@ -58,6 +58,12 @@ enum BoardCardStatus {
   DONE
 }
 
+enum BoardCardPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
 model Project {
   id          String   @id @default(cuid())
   key         String   @unique
@@ -349,7 +355,8 @@ model BoardCard {
   id                     String          @id @default(cuid())
   title                  String
   description            String?
-  status                 BoardCardStatus @default(TODO)
+  status                 BoardCardStatus   @default(TODO)
+  priority               BoardCardPriority @default(MEDIUM)
   startAt                DateTime?
   dueAt                  DateTime?
   position               Int             @default(0)

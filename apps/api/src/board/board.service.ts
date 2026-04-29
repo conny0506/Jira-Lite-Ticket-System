@@ -1,7 +1,8 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { BoardCardStatus, Prisma } from '@prisma/client';
+import { BoardCardPriority, BoardCardStatus, Prisma } from '@prisma/client';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { BulkDeleteCardsDto } from './dto/bulk-delete-cards.dto';
 import { CreateCardDto } from './dto/create-card.dto';
 import { CreateChecklistItemDto } from './dto/create-checklist-item.dto';
 import { CreateLabelDto } from './dto/create-label.dto';
@@ -15,6 +16,7 @@ const cardSelect = {
   title: true,
   description: true,
   status: true,
+  priority: true,
   startAt: true,
   dueAt: true,
   position: true,
@@ -76,6 +78,7 @@ export class BoardService {
         title: dto.title,
         description: dto.description ?? null,
         status,
+        priority: (dto.priority ?? 'MEDIUM') as BoardCardPriority,
         startAt: dto.startAt ? new Date(dto.startAt) : null,
         dueAt: dto.dueAt ? new Date(dto.dueAt) : null,
         position,
@@ -93,11 +96,27 @@ export class BoardService {
     if (!exists) throw new NotFoundException('Kart bulunamadi');
     const data: Prisma.BoardCardUpdateInput = {};
     if (dto.title !== undefined) data.title = dto.title;
+    if (dto.priority !== undefined) data.priority = dto.priority as BoardCardPriority;
     if (dto.description !== undefined) data.description = dto.description;
     if (dto.startAt !== undefined) data.startAt = dto.startAt ? new Date(dto.startAt) : null;
     if (dto.dueAt !== undefined) data.dueAt = dto.dueAt ? new Date(dto.dueAt) : null;
     if (dto.hideCompletedChecklist !== undefined) data.hideCompletedChecklist = dto.hideCompletedChecklist;
     return this.prisma.boardCard.update({ where: { id: cardId }, data, select: cardSelect });
+  }
+
+  async bulkDeleteCards(actorId: string, role: string, dto: BulkDeleteCardsDto) {
+    assertWriter(role);
+    const found = await this.prisma.boardCard.findMany({
+      where: { id: { in: dto.ids } },
+      select: { id: true, title: true },
+    });
+    if (found.length === 0) return { deleted: 0 };
+    await this.prisma.boardCard.deleteMany({ where: { id: { in: found.map((c) => c.id) } } });
+    await this.auditLogs.log(actorId, 'BOARD_CARD_BULK_DELETE', 'BOARD_CARD', 'multiple', {
+      count: found.length,
+      titles: found.map((c) => c.title),
+    });
+    return { deleted: found.length };
   }
 
   async moveCard(actorId: string, role: string, cardId: string, dto: MoveCardDto) {

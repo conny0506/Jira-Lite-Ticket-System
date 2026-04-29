@@ -2845,6 +2845,15 @@ export default function HomePage() {
   if (!currentUser) {
     return (
       <main className="loginScreen">
+        <button
+          type="button"
+          className="loginThemeToggle"
+          onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+          aria-label="Tema değiştir"
+          title={theme === 'dark' ? 'Açık moda geç' : 'Koyu moda geç'}
+        >
+          {theme === 'dark' ? '☀ Açık Mod' : '☾ Koyu Mod'}
+        </button>
         {LOGIN_PARTICLES.map((p, i) => (
           <span
             key={i}

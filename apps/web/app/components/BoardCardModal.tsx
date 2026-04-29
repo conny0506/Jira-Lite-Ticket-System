@@ -2,16 +2,22 @@
 
 import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { BoardCard, BoardChecklistItem, BoardLabel } from '../lib/boardApi';
+import type { BoardCard, BoardCardPriority, BoardChecklistItem, BoardLabel } from '../lib/boardApi';
 
 const LABEL_COLORS = ['#23a4ff', '#00d1b6', '#f0b429', '#e74c3c', '#9b59b6', '#2ecc71', '#1abc9c', '#e67e22'];
+
+const PRIORITY_META: Record<BoardCardPriority, { label: string; color: string; bg: string }> = {
+  LOW: { label: 'Düşük', color: '#0a8a3a', bg: 'linear-gradient(135deg,#7be495,#2ecc71)' },
+  MEDIUM: { label: 'Orta', color: '#8a5e00', bg: 'linear-gradient(135deg,#ffd86b,#f0b429)' },
+  HIGH: { label: 'Yüksek', color: '#7a0e1f', bg: 'linear-gradient(135deg,#ff8e8e,#e74c3c)' },
+};
 
 type Props = {
   card: BoardCard;
   labels: BoardLabel[];
   readOnly: boolean;
   onClose: () => void;
-  onUpdateCard: (patch: { title?: string; description?: string | null; startAt?: string | null; dueAt?: string | null; hideCompletedChecklist?: boolean }) => Promise<void>;
+  onUpdateCard: (patch: { title?: string; description?: string | null; startAt?: string | null; dueAt?: string | null; hideCompletedChecklist?: boolean; priority?: BoardCardPriority }) => Promise<void>;
   onDeleteCard: () => Promise<void>;
   onSetLabels: (labelIds: string[]) => Promise<void>;
   onCreateLabel: (name: string, color: string) => Promise<BoardLabel | null>;
@@ -168,6 +174,28 @@ export function BoardCardModal({
 
           <div className="boardModalContent">
             <div className="boardModalLeft">
+              <section className="boardModalRow">
+                <span className="boardModalLabel">Öncelik</span>
+                <div className="boardPriorityRow">
+                  {(['LOW', 'MEDIUM', 'HIGH'] as BoardCardPriority[]).map((p) => {
+                    const m = PRIORITY_META[p];
+                    const active = (card.priority ?? 'MEDIUM') === p;
+                    return (
+                      <button
+                        key={p}
+                        type="button"
+                        className={`boardPriorityChoice${active ? ' isActive' : ''}`}
+                        style={active ? { background: m.bg, color: m.color, borderColor: 'transparent' } : undefined}
+                        onClick={() => { if (!readOnly && !active) void onUpdateCard({ priority: p }); }}
+                        disabled={readOnly}
+                      >
+                        {m.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+
               <section className="boardModalRow">
                 <span className="boardModalLabel">Etiketler</span>
                 <div className="boardModalLabelList">

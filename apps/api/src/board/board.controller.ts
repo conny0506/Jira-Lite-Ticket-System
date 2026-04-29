@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Put } from '@nestjs/
 import { CurrentUserId } from '../auth/current-user-id.decorator';
 import { CurrentUserRole } from '../auth/current-user-role.decorator';
 import { BoardService } from './board.service';
+import { BulkDeleteCardsDto } from './dto/bulk-delete-cards.dto';
 import { CreateCardDto } from './dto/create-card.dto';
 import { CreateChecklistItemDto } from './dto/create-checklist-item.dto';
 import { CreateLabelDto } from './dto/create-label.dto';
@@ -55,6 +56,15 @@ export class BoardController {
     @Param('id') id: string,
   ) {
     return this.boardService.deleteCard(actorId, role, id);
+  }
+
+  @Post('cards/bulk-delete')
+  bulkDeleteCards(
+    @CurrentUserId() actorId: string,
+    @CurrentUserRole() role: string,
+    @Body() dto: BulkDeleteCardsDto,
+  ) {
+    return this.boardService.bulkDeleteCards(actorId, role, dto);
   }
 
   @Post('cards/:id/checklist')

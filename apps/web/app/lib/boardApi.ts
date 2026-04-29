@@ -56,6 +56,7 @@ export async function boardFetch<T = unknown>(
 }
 
 export type BoardCardStatus = 'TODO' | 'IN_PROGRESS' | 'DONE';
+export type BoardCardPriority = 'LOW' | 'MEDIUM' | 'HIGH';
 
 export type BoardLabel = {
   id: string;
@@ -77,6 +78,7 @@ export type BoardCard = {
   title: string;
   description: string | null;
   status: BoardCardStatus;
+  priority: BoardCardPriority;
   startAt: string | null;
   dueAt: string | null;
   position: number;

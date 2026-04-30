@@ -9,8 +9,10 @@ import {
   BoardCardPriority,
   BoardCardStatus,
   BoardLabel,
+  BoardMember,
   boardFetch,
 } from '../lib/boardApi';
+import { BoardArchivePanel } from './BoardArchivePanel';
 import { BoardCardModal } from './BoardCardModal';
 import { BoardKeyboardHelp } from './BoardKeyboardHelp';
 import { BoardSkeleton } from './BoardSkeleton';
@@ -73,6 +75,9 @@ const EMPTY_FILTER: FilterState = {
 export function BoardView({ bundle, readOnly, onAuthError }: Props) {
   const [cards, setCards] = useState<BoardCard[]>([]);
   const [labels, setLabels] = useState<BoardLabel[]>([]);
+  const [members, setMembers] = useState<BoardMember[]>([]);
+  const [archivePanelOpen, setArchivePanelOpen] = useState(false);
+  const [confetti, setConfetti] = useState<{ x: number; y: number; key: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [openCardId, setOpenCardId] = useState<string | null>(null);
   const [addingTo, setAddingTo] = useState<BoardCardStatus | null>(null);
@@ -112,13 +117,15 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
     let cancelled = false;
     (async () => {
       try {
-        const [cardsRes, labelsRes] = await Promise.all([
+        const [cardsRes, labelsRes, membersRes] = await Promise.all([
           boardFetch<BoardCard[]>(bundle, '/board/cards'),
           boardFetch<BoardLabel[]>(bundle, '/board/labels'),
+          boardFetch<BoardMember[]>(bundle, '/board/members'),
         ]);
         if (cancelled) return;
         setCards(cardsRes);
         setLabels(labelsRes);
+        setMembers(membersRes);
       } catch (err) {
         handleApiError(err, 'Veriler yuklenemedi');
       } finally {
@@ -241,9 +248,15 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
     targetStatus: BoardCardStatus,
     targetCardId: string | null,
     targetPos: 'before' | 'after',
+    dropPoint?: { x: number; y: number },
   ) {
     const card = cards.find((c) => c.id === cardId);
     if (!card) return;
+    // confetti tetikle: TODO/IN_PROGRESS → DONE geçişi
+    if (targetStatus === 'DONE' && card.status !== 'DONE' && dropPoint) {
+      setConfetti({ x: dropPoint.x, y: dropPoint.y, key: Date.now() });
+      setTimeout(() => setConfetti(null), 1500);
+    }
     const others = cards
       .filter((c) => c.status === targetStatus && c.id !== cardId)
       .sort((a, b) => a.position - b.position);
@@ -307,6 +320,38 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
     } catch (err) {
       handleApiError(err, 'Kart guncellenemedi');
       return null;
+    }
+  }
+
+  async function archiveCard(cardId: string) {
+    try {
+      await boardFetch(bundle, `/board/cards/${cardId}/archive`, { method: 'PATCH' });
+      setCards((prev) => prev.filter((c) => c.id !== cardId));
+      setOpenCardId(null);
+      showToast('success', 'Kart arşivlendi');
+    } catch (err) {
+      handleApiError(err, 'Arşivlenemedi');
+    }
+  }
+
+  function handleArchiveRestored(restored: BoardCard) {
+    setCards((prev) => {
+      // varsa güncelle, yoksa ekle
+      const exists = prev.some((c) => c.id === restored.id);
+      return exists ? prev.map((c) => (c.id === restored.id ? restored : c)) : [...prev, restored];
+    });
+    showToast('success', 'Kart geri yüklendi');
+  }
+
+  async function setAssignees(cardId: string, memberIds: string[]) {
+    try {
+      const updated = await boardFetch<BoardCard>(bundle, `/board/cards/${cardId}/assignees`, {
+        method: 'PUT',
+        body: JSON.stringify({ memberIds }),
+      });
+      setCards((prev) => prev.map((c) => (c.id === cardId ? updated : c)));
+    } catch (err) {
+      handleApiError(err, 'Atama güncellenemedi');
     }
   }
 
@@ -456,11 +501,12 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
     }
     const cardId = e.dataTransfer.getData('boardCardId');
     const tgt = dropTarget;
+    const dropPoint = { x: e.clientX, y: e.clientY };
     setOverColumn(null);
     setDropTarget(null);
     setDraggingId(null);
     if (!cardId) return;
-    void handleMoveAndReorder(cardId, status, tgt?.cardId ?? null, tgt?.pos ?? 'after');
+    void handleMoveAndReorder(cardId, status, tgt?.cardId ?? null, tgt?.pos ?? 'after', dropPoint);
   }
 
   // ----- filtered cards -----
@@ -651,9 +697,14 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
       {!readOnly && (
         <div className="boardActionBar">
           {!bulkMode ? (
-            <button type="button" className="boardActionBtn" onClick={() => setBulkMode(true)}>
-              ✓ Toplu Seç
-            </button>
+            <>
+              <button type="button" className="boardActionBtn" onClick={() => setBulkMode(true)}>
+                ✓ Toplu Seç
+              </button>
+              <button type="button" className="boardActionBtn" onClick={() => setArchivePanelOpen(true)}>
+                📦 Arşiv
+              </button>
+            </>
           ) : (
             <>
               <span className="boardSelectionInfo">
@@ -736,8 +787,9 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
                       <div key={card.id} className="boardCardSlot">
                         {showInsertBefore && <div className="boardDropIndicator" />}
                         <motion.article
+                          layoutId={`boardCard-${card.id}`}
                           layout
-                          className={`boardCard${recentlyCreatedId === card.id ? ' isNew' : ''}${selected ? ' isSelected' : ''}${draggingId === card.id ? ' isDragging' : ''}${isHighOverdue ? ' isHighOverdue' : ''}`}
+                          className={`boardCard${recentlyCreatedId === card.id ? ' isNew' : ''}${selected ? ' isSelected' : ''}${draggingId === card.id ? ' isDragging' : ''}${isHighOverdue ? ' isHighOverdue' : ''}${card.coverColor ? ' hasCover' : ''}`}
                           data-priority={priority}
                           initial={{ opacity: 0, scale: 0.9, y: -8 }}
                           animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -801,6 +853,9 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
                               </div>
                             )}
                           </div>
+                          {card.coverColor && (
+                            <div className="boardCardCover" style={{ background: card.coverColor }} />
+                          )}
                           {card.labels.length > 0 && (
                             <div className="boardCardLabels">
                               {card.labels.map(({ label }) => (
@@ -815,7 +870,9 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
                               ))}
                             </div>
                           )}
-                          <h3 className="boardCardTitle">{card.title}</h3>
+                          <h3 className="boardCardTitle">
+                            <span className="boardCardSeq">#{card.seq}</span> {card.title}
+                          </h3>
                           {checklistTotal > 0 && (
                             <div className="boardCardProgress" title={`${checklistDone}/${checklistTotal}`}>
                               <div className="boardCardProgressBar" style={{ width: `${checklistPct}%` }} />
@@ -843,6 +900,22 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
                             )}
                             {card.description && (
                               <span className="boardCardMetaItem" title="Açıklama var">📝</span>
+                            )}
+                            {card.assignees.length > 0 && (
+                              <span className="boardAssigneeStack">
+                                {card.assignees.slice(0, 3).map(({ member }) => (
+                                  <span
+                                    key={member.id}
+                                    className="boardAssigneeAvatar boardAssigneeAvatar-stacked"
+                                    title={member.name}
+                                  >
+                                    {member.name.charAt(0).toUpperCase()}
+                                  </span>
+                                ))}
+                                {card.assignees.length > 3 && (
+                                  <span className="boardAssigneeMore">+{card.assignees.length - 3}</span>
+                                )}
+                              </span>
                             )}
                           </div>
                           {!readOnly && !bulkMode && (
@@ -931,10 +1004,12 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
             key={openCard.id}
             card={openCard}
             labels={labels}
+            members={members}
+            bundle={bundle}
+            currentUserId={bundle.user.id}
             readOnly={readOnly}
             onClose={() => {
               setOpenCardId(null);
-              // ?card= varsa URL'i temizle
               const params = new URLSearchParams(window.location.search);
               if (params.has('card')) {
                 params.delete('card');
@@ -944,13 +1019,16 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
             }}
             onUpdateCard={(patch) => patchCard(openCard.id, patch).then(() => undefined)}
             onDeleteCard={() => deleteCard(openCard.id)}
+            onArchiveCard={() => archiveCard(openCard.id)}
             onDuplicateCard={() => duplicateCard(openCard.id)}
             onSetLabels={(ids) => setCardLabels(openCard.id, ids)}
+            onSetAssignees={(ids) => setAssignees(openCard.id, ids)}
             onCreateLabel={createLabel}
             onDeleteLabel={deleteLabel}
             onAddChecklistItem={(text) => addChecklistItem(openCard.id, text)}
             onUpdateChecklistItem={(itemId, patch) => updateChecklistItem(openCard.id, itemId, patch)}
             onDeleteChecklistItem={(itemId) => deleteChecklistItem(openCard.id, itemId)}
+            onError={(msg) => showToast('error', msg)}
           />
         )}
       </AnimatePresence>
@@ -958,6 +1036,61 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
       <AnimatePresence>
         {helpOpen && <BoardKeyboardHelp onClose={() => setHelpOpen(false)} />}
       </AnimatePresence>
+
+      <AnimatePresence>
+        {archivePanelOpen && (
+          <BoardArchivePanel
+            bundle={bundle}
+            readOnly={readOnly}
+            onClose={() => setArchivePanelOpen(false)}
+            onRestore={handleArchiveRestored}
+            onError={(msg) => showToast('error', msg)}
+          />
+        )}
+      </AnimatePresence>
+
+      {confetti && <ConfettiBurst x={confetti.x} y={confetti.y} burstKey={confetti.key} />}
+    </div>
+  );
+}
+
+// ---- Confetti (inline canvas/particles) ----
+function ConfettiBurst({ x, y, burstKey }: { x: number; y: number; burstKey: number }) {
+  const particles = useMemo(() => {
+    return Array.from({ length: 22 }).map((_, i) => {
+      const angle = (i / 22) * Math.PI * 2 + Math.random() * 0.4;
+      const dist = 80 + Math.random() * 80;
+      const dx = Math.cos(angle) * dist;
+      const dy = Math.sin(angle) * dist - 30;
+      const colors = ['#23a4ff', '#00d1b6', '#f0b429', '#e74c3c', '#9b59b6', '#2ecc71'];
+      return {
+        id: i,
+        dx,
+        dy,
+        color: colors[i % colors.length],
+        size: 6 + Math.random() * 6,
+        rot: Math.random() * 360,
+      };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [burstKey]);
+
+  return (
+    <div className="boardConfettiRoot" style={{ left: x, top: y }} aria-hidden="true">
+      {particles.map((p) => (
+        <span
+          key={p.id}
+          className="boardConfettiPiece"
+          style={{
+            background: p.color,
+            width: p.size,
+            height: p.size,
+            ['--cx' as string]: `${p.dx}px`,
+            ['--cy' as string]: `${p.dy}px`,
+            ['--cr' as string]: `${p.rot}deg`,
+          }}
+        />
+      ))}
     </div>
   );
 }

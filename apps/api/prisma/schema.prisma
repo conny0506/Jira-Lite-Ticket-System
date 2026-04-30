@@ -134,7 +134,10 @@ model TeamMember {
   auditLogs        AuditLog[]
   commentReactions CommentReaction[]
   ticketTemplates  TicketTemplate[]
-  boardCardsCreated BoardCard[] @relation("BoardCardCreatedBy")
+  boardCardsCreated  BoardCard[] @relation("BoardCardCreatedBy")
+  boardCardsAssigned BoardCardAssignee[]
+  boardComments      BoardComment[]
+  boardCommentReactions BoardCommentReaction[]
 
   @@index([passwordResetTokenHash])
 }
@@ -352,23 +355,69 @@ model TicketTemplate {
 }
 
 model BoardCard {
-  id                     String          @id @default(cuid())
+  id                     String            @id @default(cuid())
+  seq                    Int               @default(autoincrement())
   title                  String
   description            String?
   status                 BoardCardStatus   @default(TODO)
   priority               BoardCardPriority @default(MEDIUM)
   startAt                DateTime?
   dueAt                  DateTime?
-  position               Int             @default(0)
-  hideCompletedChecklist Boolean         @default(false)
+  position               Int               @default(0)
+  hideCompletedChecklist Boolean           @default(false)
+  archivedAt             DateTime?
+  coverColor             String?
+  coverImageUrl          String?
   createdById            String
-  createdAt              DateTime        @default(now())
-  updatedAt              DateTime        @updatedAt
-  createdBy              TeamMember      @relation("BoardCardCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
+  createdBy              TeamMember        @relation("BoardCardCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
   labels                 BoardCardLabel[]
   checklist              BoardChecklistItem[]
+  assignees              BoardCardAssignee[]
+  comments               BoardComment[]
 
   @@index([status, position])
+  @@index([archivedAt])
+  @@index([seq])
+}
+
+model BoardCardAssignee {
+  cardId     String
+  memberId   String
+  assignedAt DateTime   @default(now())
+  card       BoardCard  @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  member     TeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@id([cardId, memberId])
+  @@index([memberId])
+}
+
+model BoardComment {
+  id        String   @id @default(cuid())
+  cardId    String
+  authorId  String
+  body      String
+  mentions  String[] @default([])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  card      BoardCard  @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  author    TeamMember @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  reactions BoardCommentReaction[]
+
+  @@index([cardId, createdAt])
+}
+
+model BoardCommentReaction {
+  commentId String
+  memberId  String
+  emoji     String
+  createdAt DateTime @default(now())
+  comment   BoardComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  member    TeamMember   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@id([commentId, memberId, emoji])
+  @@index([commentId])
 }
 
 model BoardLabel {

@@ -5,11 +5,15 @@ import { BoardService } from './board.service';
 import { BulkDeleteCardsDto } from './dto/bulk-delete-cards.dto';
 import { CreateCardDto } from './dto/create-card.dto';
 import { CreateChecklistItemDto } from './dto/create-checklist-item.dto';
+import { CreateCommentDto } from './dto/create-comment.dto';
 import { CreateLabelDto } from './dto/create-label.dto';
 import { MoveCardDto } from './dto/move-card.dto';
+import { ReactCommentDto } from './dto/react-comment.dto';
+import { SetCardAssigneesDto } from './dto/set-card-assignees.dto';
 import { SetCardLabelsDto } from './dto/set-card-labels.dto';
 import { UpdateCardDto } from './dto/update-card.dto';
 import { UpdateChecklistItemDto } from './dto/update-checklist-item.dto';
+import { UpdateCommentDto } from './dto/update-comment.dto';
 
 @Controller('board')
 export class BoardController {
@@ -136,5 +140,95 @@ export class BoardController {
     @Body() dto: SetCardLabelsDto,
   ) {
     return this.boardService.setCardLabels(actorId, role, id, dto);
+  }
+
+  // ---- Archive ----
+  @Get('archived')
+  listArchived(@CurrentUserId() _actorId: string) {
+    return this.boardService.listArchived();
+  }
+
+  @Patch('cards/:id/archive')
+  archiveCard(
+    @CurrentUserId() actorId: string,
+    @CurrentUserRole() role: string,
+    @Param('id') id: string,
+  ) {
+    return this.boardService.archiveCard(actorId, role, id);
+  }
+
+  @Patch('cards/:id/restore')
+  restoreCard(
+    @CurrentUserId() actorId: string,
+    @CurrentUserRole() role: string,
+    @Param('id') id: string,
+  ) {
+    return this.boardService.restoreCard(actorId, role, id);
+  }
+
+  // ---- Members ----
+  @Get('members')
+  listMembers(@CurrentUserId() _actorId: string) {
+    return this.boardService.listMembers();
+  }
+
+  // ---- Assignees ----
+  @Put('cards/:id/assignees')
+  setAssignees(
+    @CurrentUserId() actorId: string,
+    @CurrentUserRole() role: string,
+    @Param('id') id: string,
+    @Body() dto: SetCardAssigneesDto,
+  ) {
+    return this.boardService.setCardAssignees(actorId, role, id, dto);
+  }
+
+  // ---- Comments ----
+  @Get('cards/:id/comments')
+  listComments(@CurrentUserId() _actorId: string, @Param('id') id: string) {
+    return this.boardService.listComments(id);
+  }
+
+  @Post('cards/:id/comments')
+  createComment(
+    @CurrentUserId() actorId: string,
+    @Param('id') id: string,
+    @Body() dto: CreateCommentDto,
+  ) {
+    return this.boardService.createComment(actorId, id, dto);
+  }
+
+  @Patch('comments/:commentId')
+  updateComment(
+    @CurrentUserId() actorId: string,
+    @CurrentUserRole() role: string,
+    @Param('commentId') commentId: string,
+    @Body() dto: UpdateCommentDto,
+  ) {
+    return this.boardService.updateComment(actorId, role, commentId, dto);
+  }
+
+  @Delete('comments/:commentId')
+  deleteComment(
+    @CurrentUserId() actorId: string,
+    @CurrentUserRole() role: string,
+    @Param('commentId') commentId: string,
+  ) {
+    return this.boardService.deleteComment(actorId, role, commentId);
+  }
+
+  @Post('comments/:commentId/reactions')
+  toggleReaction(
+    @CurrentUserId() actorId: string,
+    @Param('commentId') commentId: string,
+    @Body() dto: ReactCommentDto,
+  ) {
+    return this.boardService.toggleReaction(actorId, commentId, dto);
+  }
+
+  // ---- Activity ----
+  @Get('cards/:id/activity')
+  cardActivity(@CurrentUserId() _actorId: string, @Param('id') id: string) {
+    return this.boardService.getCardActivity(id);
   }
 }

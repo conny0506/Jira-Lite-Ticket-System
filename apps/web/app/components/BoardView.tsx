@@ -3,6 +3,7 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { DragEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  API_URL,
   BoardApiError,
   BoardAuthBundle,
   BoardCard,
@@ -16,6 +17,7 @@ import { BoardArchivePanel } from './BoardArchivePanel';
 import { BoardCardModal } from './BoardCardModal';
 import { BoardKeyboardHelp } from './BoardKeyboardHelp';
 import { BoardSkeleton } from './BoardSkeleton';
+import { BoardStatsPanel } from './BoardStatsPanel';
 
 const COLUMNS: { status: BoardCardStatus; label: string; accent: string }[] = [
   { status: 'TODO', label: 'To Do', accent: '#23a4ff' },
@@ -77,8 +79,11 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
   const [labels, setLabels] = useState<BoardLabel[]>([]);
   const [members, setMembers] = useState<BoardMember[]>([]);
   const [archivePanelOpen, setArchivePanelOpen] = useState(false);
+  const [statsPanelOpen, setStatsPanelOpen] = useState(false);
   const [confetti, setConfetti] = useState<{ x: number; y: number; key: number } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [liveStatus, setLiveStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
+  const refetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [openCardId, setOpenCardId] = useState<string | null>(null);
   const [addingTo, setAddingTo] = useState<BoardCardStatus | null>(null);
   const [newCardTitle, setNewCardTitle] = useState('');
@@ -134,6 +139,84 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
     })();
     return () => { cancelled = true; };
   }, [bundle, handleApiError]);
+
+  const requestCardsRefetch = useCallback(() => {
+    if (refetchTimerRef.current) clearTimeout(refetchTimerRef.current);
+    refetchTimerRef.current = setTimeout(() => {
+      boardFetch<BoardCard[]>(bundle, '/board/cards').then(setCards).catch(() => {});
+    }, 200);
+  }, [bundle]);
+
+  const refetchLabels = useCallback(() => {
+    boardFetch<BoardLabel[]>(bundle, '/board/labels').then(setLabels).catch(() => {});
+  }, [bundle]);
+
+  // ---- SSE: live updates ----
+  useEffect(() => {
+    let cancelled = false;
+    let es: EventSource | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+    async function connect() {
+      if (cancelled) return;
+      try {
+        setLiveStatus('connecting');
+        const tres = await fetch(`${API_URL}/events/ticket`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${bundle.accessToken}` },
+        });
+        if (!tres.ok || cancelled) {
+          setLiveStatus('disconnected');
+          return;
+        }
+        const { ticket } = (await tres.json()) as { ticket: string };
+        if (cancelled) return;
+        es?.close();
+        es = new EventSource(`${API_URL}/events/stream?ticket=${encodeURIComponent(ticket)}`);
+        es.onopen = () => setLiveStatus('connected');
+        es.onerror = () => {
+          setLiveStatus('disconnected');
+          es?.close();
+          if (!cancelled) {
+            reconnectTimer = setTimeout(connect, 4000);
+          }
+        };
+        es.onmessage = (e) => {
+          try {
+            const p = JSON.parse(e.data) as { type: string; actorId?: string; cardId?: string; commentId?: string; authorName?: string };
+            if (p.type === 'ping') return;
+            // Kendi event'lerimizi ignore et (optimistik update zaten yaptık)
+            if (p.actorId && p.actorId === bundle.user.id) return;
+            if (p.type === 'board:card:upserted' || p.type === 'board:card:restored') {
+              requestCardsRefetch();
+            } else if (p.type === 'board:card:deleted' || p.type === 'board:card:archived') {
+              setCards((prev) => prev.filter((c) => c.id !== p.cardId));
+            } else if (p.type === 'board:label:changed') {
+              refetchLabels();
+              requestCardsRefetch();
+            } else if (p.type === 'board:comment:new' || p.type === 'board:comment:updated' || p.type === 'board:comment:deleted') {
+              // Modal'a forward et
+              window.dispatchEvent(new CustomEvent('board-comment-event', { detail: p }));
+              if (p.type === 'board:comment:new' && p.authorName) {
+                showToast('info', `${p.authorName} yorum yaptı`);
+              }
+            }
+          } catch {
+            // malformed
+          }
+        };
+      } catch {
+        setLiveStatus('disconnected');
+        if (!cancelled) reconnectTimer = setTimeout(connect, 4000);
+      }
+    }
+    connect();
+    return () => {
+      cancelled = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      es?.close();
+    };
+  }, [bundle, requestCardsRefetch, refetchLabels, showToast]);
 
   // ?card=<id> permalink → modal aç
   useEffect(() => {
@@ -375,6 +458,27 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
       showToast('success', 'Kart kopyalandı');
     } catch (err) {
       handleApiError(err, 'Kart kopyalanamadı');
+    }
+  }
+
+  async function handleExport(format: 'csv' | 'json') {
+    try {
+      const res = await fetch(`${API_URL}/board/export?format=${format}`, {
+        headers: { Authorization: `Bearer ${bundle.accessToken}` },
+      });
+      if (!res.ok) throw new Error(`Dışa aktarma başarısız (${res.status})`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `board-${new Date().toISOString().slice(0, 10)}.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      showToast('success', `${format.toUpperCase()} indirildi`);
+    } catch (err) {
+      handleApiError(err, 'Dışa aktarılamadı');
     }
   }
 
@@ -701,9 +805,26 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
               <button type="button" className="boardActionBtn" onClick={() => setBulkMode(true)}>
                 ✓ Toplu Seç
               </button>
+              <button type="button" className="boardActionBtn" onClick={() => setStatsPanelOpen(true)}>
+                📊 İstatistikler
+              </button>
               <button type="button" className="boardActionBtn" onClick={() => setArchivePanelOpen(true)}>
                 📦 Arşiv
               </button>
+              <div className="boardExportWrap">
+                <button type="button" className="boardActionBtn">⬇ Dışa Aktar ▾</button>
+                <div className="boardExportMenu">
+                  <button type="button" onClick={() => handleExport('csv')}>CSV</button>
+                  <button type="button" onClick={() => handleExport('json')}>JSON</button>
+                </div>
+              </div>
+              <span
+                className={`boardLiveBadge boardLiveBadge-${liveStatus}`}
+                title={liveStatus === 'connected' ? 'Canlı bağlantı aktif' : liveStatus === 'connecting' ? 'Bağlanıyor...' : 'Bağlantı yok'}
+              >
+                <span className="boardLiveDot" />
+                {liveStatus === 'connected' ? 'Canlı' : liveStatus === 'connecting' ? 'Bağlanıyor' : 'Çevrimdışı'}
+              </span>
             </>
           ) : (
             <>
@@ -938,6 +1059,12 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
                               >▼</button>
                             </div>
                           )}
+                          {card.description && (
+                            <div className="boardCardPreview">
+                              {card.description.slice(0, 200)}
+                              {card.description.length > 200 ? '...' : ''}
+                            </div>
+                          )}
                         </motion.article>
                         {showInsertAfter && <div className="boardDropIndicator" />}
                       </div>
@@ -1035,6 +1162,12 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
 
       <AnimatePresence>
         {helpOpen && <BoardKeyboardHelp onClose={() => setHelpOpen(false)} />}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {statsPanelOpen && (
+          <BoardStatsPanel cards={cards} onClose={() => setStatsPanelOpen(false)} />
+        )}
       </AnimatePresence>
 
       <AnimatePresence>

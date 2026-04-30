@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { BoardCardPriority, BoardCardStatus, Prisma } from '@prisma/client';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { EventsService } from '../events/events.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { BulkDeleteCardsDto } from './dto/bulk-delete-cards.dto';
 import { CreateCardDto } from './dto/create-card.dto';
@@ -87,6 +88,7 @@ export class BoardService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLogs: AuditLogsService,
+    private readonly events: EventsService,
   ) {}
 
   async listCards() {
@@ -139,6 +141,7 @@ export class BoardService {
       select: cardSelect,
     });
     await this.auditLogs.log(actorId, 'BOARD_CARD_CREATE', 'BOARD_CARD', card.id, { title: card.title });
+    this.events.broadcastAll({ type: 'board:card:upserted', cardId: card.id, actorId });
     return card;
   }
 
@@ -155,7 +158,9 @@ export class BoardService {
     if (dto.hideCompletedChecklist !== undefined) data.hideCompletedChecklist = dto.hideCompletedChecklist;
     if (dto.coverColor !== undefined) data.coverColor = dto.coverColor;
     if (dto.coverImageUrl !== undefined) data.coverImageUrl = dto.coverImageUrl;
-    return this.prisma.boardCard.update({ where: { id: cardId }, data, select: cardSelect });
+    const updated = await this.prisma.boardCard.update({ where: { id: cardId }, data, select: cardSelect });
+    this.events.broadcastAll({ type: 'board:card:upserted', cardId, actorId });
+    return updated;
   }
 
   async archiveCard(actorId: string, role: string, cardId: string) {
@@ -168,6 +173,7 @@ export class BoardService {
       select: cardSelect,
     });
     await this.auditLogs.log(actorId, 'BOARD_CARD_ARCHIVE', 'BOARD_CARD', cardId, { title: exists.title });
+    this.events.broadcastAll({ type: 'board:card:archived', cardId, actorId });
     return updated;
   }
 
@@ -181,6 +187,7 @@ export class BoardService {
       select: cardSelect,
     });
     await this.auditLogs.log(actorId, 'BOARD_CARD_RESTORE', 'BOARD_CARD', cardId, { title: exists.title });
+    this.events.broadcastAll({ type: 'board:card:restored', cardId, actorId });
     return updated;
   }
 
@@ -208,6 +215,7 @@ export class BoardService {
         : []),
     ]);
     await this.auditLogs.log(actorId, 'BOARD_CARD_ASSIGN', 'BOARD_CARD', cardId, { memberIds: dto.memberIds });
+    this.events.broadcastAll({ type: 'board:card:upserted', cardId, actorId });
     return this.prisma.boardCard.findUnique({ where: { id: cardId }, select: cardSelect });
   }
 
@@ -234,6 +242,13 @@ export class BoardService {
       cardId,
       mentions,
     });
+    this.events.broadcastAll({
+      type: 'board:comment:new',
+      cardId,
+      commentId: comment.id,
+      authorId: actorId,
+      authorName: comment.author.name,
+    });
     return comment;
   }
 
@@ -247,30 +262,33 @@ export class BoardService {
       throw new ForbiddenException('Sadece kendi yorumunuzu düzenleyebilirsiniz');
     }
     const mentions = parseMentions(dto.body);
-    return this.prisma.boardComment.update({
+    const updated = await this.prisma.boardComment.update({
       where: { id: commentId },
       data: { body: dto.body, mentions },
       select: commentSelect,
     });
+    this.events.broadcastAll({ type: 'board:comment:updated', cardId: updated.cardId, commentId, actorId });
+    return updated;
   }
 
   async deleteComment(actorId: string, role: string, commentId: string) {
     const comment = await this.prisma.boardComment.findUnique({
       where: { id: commentId },
-      select: { id: true, authorId: true },
+      select: { id: true, authorId: true, cardId: true },
     });
     if (!comment) throw new NotFoundException('Yorum bulunamadi');
     if (comment.authorId !== actorId && role !== 'CAPTAIN' && role !== 'BOARD') {
       throw new ForbiddenException('Sadece kendi yorumunuzu silebilirsiniz');
     }
     await this.prisma.boardComment.delete({ where: { id: commentId } });
+    this.events.broadcastAll({ type: 'board:comment:deleted', cardId: comment.cardId, commentId, actorId });
     return { success: true };
   }
 
   async toggleReaction(actorId: string, commentId: string, dto: ReactCommentDto) {
     const comment = await this.prisma.boardComment.findUnique({
       where: { id: commentId },
-      select: { id: true },
+      select: { id: true, cardId: true },
     });
     if (!comment) throw new NotFoundException('Yorum bulunamadi');
     const existing = await this.prisma.boardCommentReaction.findUnique({
@@ -285,7 +303,59 @@ export class BoardService {
         data: { commentId, memberId: actorId, emoji: dto.emoji },
       });
     }
+    this.events.broadcastAll({ type: 'board:comment:updated', cardId: comment.cardId, commentId, actorId });
     return this.prisma.boardComment.findUnique({ where: { id: commentId }, select: commentSelect });
+  }
+
+  // ---- Export ----
+  async exportCards(format: 'csv' | 'json'): Promise<{ body: string; mime: string; filename: string }> {
+    const cards = await this.prisma.boardCard.findMany({
+      where: { archivedAt: null },
+      orderBy: [{ status: 'asc' }, { position: 'asc' }],
+      select: cardSelect,
+    });
+    const today = new Date().toISOString().slice(0, 10);
+    if (format === 'json') {
+      return {
+        body: JSON.stringify(cards, null, 2),
+        mime: 'application/json',
+        filename: `board-${today}.json`,
+      };
+    }
+    // CSV
+    const header = [
+      'seq', 'title', 'status', 'priority', 'startAt', 'dueAt',
+      'labels', 'assignees', 'checklistDone', 'checklistTotal', 'description',
+    ];
+    const escape = (v: unknown): string => {
+      if (v === null || v === undefined) return '';
+      const s = String(v).replace(/"/g, '""');
+      return /[",\n]/.test(s) ? `"${s}"` : s;
+    };
+    const rows = cards.map((c) => {
+      const labels = c.labels.map((l) => l.label.name).join(' | ');
+      const assignees = c.assignees.map((a) => a.member.name).join(' | ');
+      const done = c.checklist.filter((i) => i.done).length;
+      return [
+        `BOARD-${c.seq}`,
+        c.title,
+        c.status,
+        c.priority,
+        c.startAt ? new Date(c.startAt).toISOString().slice(0, 10) : '',
+        c.dueAt ? new Date(c.dueAt).toISOString().slice(0, 10) : '',
+        labels,
+        assignees,
+        String(done),
+        String(c.checklist.length),
+        c.description ?? '',
+      ].map(escape).join(',');
+    });
+    const csv = [header.join(','), ...rows].join('\n');
+    return {
+      body: '﻿' + csv, // BOM ile Excel'in TR karakter'ini doğru render etmesi için
+      mime: 'text/csv; charset=utf-8',
+      filename: `board-${today}.csv`,
+    };
   }
 
   // ---- Activity ----
@@ -321,6 +391,9 @@ export class BoardService {
       count: found.length,
       titles: found.map((c) => c.title),
     });
+    for (const c of found) {
+      this.events.broadcastAll({ type: 'board:card:deleted', cardId: c.id, actorId });
+    }
     return { deleted: found.length };
   }
 
@@ -334,6 +407,7 @@ export class BoardService {
       select: cardSelect,
     });
     await this.auditLogs.log(actorId, 'BOARD_CARD_MOVE', 'BOARD_CARD', cardId, { status: dto.status });
+    this.events.broadcastAll({ type: 'board:card:upserted', cardId, actorId });
     return updated;
   }
 
@@ -392,6 +466,7 @@ export class BoardService {
       sourceId: cardId,
       title: created.title,
     });
+    this.events.broadcastAll({ type: 'board:card:upserted', cardId: created.id, actorId });
     return created;
   }
 
@@ -401,6 +476,7 @@ export class BoardService {
     if (!exists) throw new NotFoundException('Kart bulunamadi');
     await this.prisma.boardCard.delete({ where: { id: cardId } });
     await this.auditLogs.log(actorId, 'BOARD_CARD_DELETE', 'BOARD_CARD', cardId, { title: exists.title });
+    this.events.broadcastAll({ type: 'board:card:deleted', cardId, actorId });
     return { success: true };
   }
 
@@ -456,10 +532,12 @@ export class BoardService {
 
   async createLabel(actorId: string, role: string, dto: CreateLabelDto) {
     assertWriter(role);
-    return this.prisma.boardLabel.create({
+    const created = await this.prisma.boardLabel.create({
       data: { name: dto.name, color: dto.color },
       select: { id: true, name: true, color: true, createdAt: true },
     });
+    this.events.broadcastAll({ type: 'board:label:changed', actorId });
+    return created;
   }
 
   async deleteLabel(actorId: string, role: string, labelId: string) {
@@ -467,6 +545,7 @@ export class BoardService {
     const exists = await this.prisma.boardLabel.findUnique({ where: { id: labelId }, select: { id: true } });
     if (!exists) throw new NotFoundException('Etiket bulunamadi');
     await this.prisma.boardLabel.delete({ where: { id: labelId } });
+    this.events.broadcastAll({ type: 'board:label:changed', actorId });
     return { success: true };
   }
 
@@ -493,6 +572,7 @@ export class BoardService {
           ]
         : []),
     ]);
+    this.events.broadcastAll({ type: 'board:card:upserted', cardId, actorId });
     return this.prisma.boardCard.findUnique({ where: { id: cardId }, select: cardSelect });
   }
 }

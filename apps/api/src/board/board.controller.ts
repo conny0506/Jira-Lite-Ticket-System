@@ -1,4 +1,9 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Put } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Header, Param, Patch, Post, Put, Query, Res } from '@nestjs/common';
+
+type ExpressLikeResponse = {
+  setHeader: (name: string, value: string) => void;
+  send: (body: string) => void;
+};
 import { CurrentUserId } from '../auth/current-user-id.decorator';
 import { CurrentUserRole } from '../auth/current-user-role.decorator';
 import { BoardService } from './board.service';
@@ -230,5 +235,22 @@ export class BoardController {
   @Get('cards/:id/activity')
   cardActivity(@CurrentUserId() _actorId: string, @Param('id') id: string) {
     return this.boardService.getCardActivity(id);
+  }
+
+  // ---- Export ----
+  @Get('export')
+  async exportCards(
+    @CurrentUserId() _actorId: string,
+    @Query('format') format: string,
+    @Res() res: ExpressLikeResponse,
+  ) {
+    const fmt = (format ?? 'csv').toLowerCase();
+    if (fmt !== 'csv' && fmt !== 'json') {
+      throw new BadRequestException('format yalnızca csv veya json olabilir');
+    }
+    const result = await this.boardService.exportCards(fmt);
+    res.setHeader('Content-Type', result.mime);
+    res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+    res.send(result.body);
   }
 }

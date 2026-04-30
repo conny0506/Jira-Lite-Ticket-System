@@ -1,4 +1,4 @@
-import { IsBoolean, IsEnum, IsISO8601, IsOptional, IsString, MaxLength, MinLength, ValidateIf } from 'class-validator';
+import { IsBoolean, IsEnum, IsISO8601, IsOptional, IsString, Matches, MaxLength, MinLength, ValidateIf } from 'class-validator';
 
 export class UpdateCardDto {
   @IsString()
@@ -30,4 +30,16 @@ export class UpdateCardDto {
   @IsBoolean()
   @IsOptional()
   hideCompletedChecklist?: boolean;
+
+  @ValidateIf((o) => o.coverColor !== null)
+  @IsString()
+  @Matches(/^#[0-9a-fA-F]{6}$/)
+  @IsOptional()
+  coverColor?: string | null;
+
+  @ValidateIf((o) => o.coverImageUrl !== null)
+  @IsString()
+  @MaxLength(1000)
+  @IsOptional()
+  coverImageUrl?: string | null;
 }

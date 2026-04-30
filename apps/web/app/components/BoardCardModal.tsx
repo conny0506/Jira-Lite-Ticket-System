@@ -2,9 +2,12 @@
 
 import { AnimatePresence, motion } from 'framer-motion';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { BoardCard, BoardCardPriority, BoardChecklistItem, BoardLabel } from '../lib/boardApi';
+import type { BoardAuthBundle, BoardCard, BoardCardPriority, BoardChecklistItem, BoardLabel, BoardMember } from '../lib/boardApi';
+import { BoardActivityFeed } from './BoardActivityFeed';
+import { BoardCommentPanel } from './BoardCommentPanel';
 
 const LABEL_COLORS = ['#23a4ff', '#00d1b6', '#f0b429', '#e74c3c', '#9b59b6', '#2ecc71', '#1abc9c', '#e67e22'];
+const COVER_COLORS = ['', '#23a4ff', '#00d1b6', '#f0b429', '#e74c3c', '#9b59b6', '#2ecc71', '#e67e22', '#34495e'];
 
 const PRIORITY_META: Record<BoardCardPriority, { label: string; color: string; bg: string }> = {
   LOW: { label: 'Düşük', color: '#0a8a3a', bg: 'linear-gradient(135deg,#7be495,#2ecc71)' },
@@ -13,21 +16,28 @@ const PRIORITY_META: Record<BoardCardPriority, { label: string; color: string; b
 };
 
 type SaveStatus = 'idle' | 'saving' | 'saved';
+type SideTab = 'checklist' | 'comments' | 'activity';
 
 type Props = {
   card: BoardCard;
   labels: BoardLabel[];
+  members: BoardMember[];
+  bundle: BoardAuthBundle;
+  currentUserId: string;
   readOnly: boolean;
   onClose: () => void;
-  onUpdateCard: (patch: { title?: string; description?: string | null; startAt?: string | null; dueAt?: string | null; hideCompletedChecklist?: boolean; priority?: BoardCardPriority }) => Promise<void>;
+  onUpdateCard: (patch: { title?: string; description?: string | null; startAt?: string | null; dueAt?: string | null; hideCompletedChecklist?: boolean; priority?: BoardCardPriority; coverColor?: string | null }) => Promise<void>;
   onDeleteCard: () => Promise<void>;
+  onArchiveCard?: () => Promise<void>;
   onDuplicateCard?: () => Promise<void>;
   onSetLabels: (labelIds: string[]) => Promise<void>;
+  onSetAssignees: (memberIds: string[]) => Promise<void>;
   onCreateLabel: (name: string, color: string) => Promise<BoardLabel | null>;
   onDeleteLabel: (labelId: string) => Promise<void>;
   onAddChecklistItem: (text: string) => Promise<void>;
   onUpdateChecklistItem: (itemId: string, patch: { text?: string; done?: boolean }) => Promise<void>;
   onDeleteChecklistItem: (itemId: string) => Promise<void>;
+  onError: (msg: string) => void;
 };
 
 function toInputDate(value: string | null): string {
@@ -40,17 +50,23 @@ function toInputDate(value: string | null): string {
 export function BoardCardModal({
   card,
   labels,
+  members,
+  bundle,
+  currentUserId,
   readOnly,
   onClose,
   onUpdateCard,
   onDeleteCard,
+  onArchiveCard,
   onDuplicateCard,
   onSetLabels,
+  onSetAssignees,
   onCreateLabel,
   onDeleteLabel,
   onAddChecklistItem,
   onUpdateChecklistItem,
   onDeleteChecklistItem,
+  onError,
 }: Props) {
   const [title, setTitle] = useState(card.title);
   const [description, setDescription] = useState(card.description ?? '');
@@ -62,6 +78,8 @@ export function BoardCardModal({
   const [newLabelName, setNewLabelName] = useState('');
   const [newLabelColor, setNewLabelColor] = useState(LABEL_COLORS[0]);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
+  const [sideTab, setSideTab] = useState<SideTab>('checklist');
+  const [assigneePopoverOpen, setAssigneePopoverOpen] = useState(false);
   const titleDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const descDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedClearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -212,7 +230,12 @@ export function BoardCardModal({
           transition={{ type: 'spring', stiffness: 300, damping: 26 }}
           onClick={(e) => e.stopPropagation()}
         >
+          {card.coverColor && (
+            <div className="boardModalCover" style={{ background: card.coverColor }} />
+          )}
+
           <header className="boardModalHeader">
+            <span className="boardModalSeq" title={`Kart numarası`}>BOARD-{card.seq}</span>
             <input
               className="boardModalTitle"
               value={title}
@@ -236,11 +259,114 @@ export function BoardCardModal({
                 aria-label="Kartı kopyala"
               >📋</button>
             )}
+            {!readOnly && onArchiveCard && (
+              <button
+                type="button"
+                className="boardModalIconBtn"
+                onClick={() => { void onArchiveCard(); }}
+                title="Arşivle"
+                aria-label="Arşivle"
+              >📦</button>
+            )}
             <button type="button" className="boardModalClose" onClick={() => { flushPending(); onClose(); }} aria-label="Kapat">×</button>
           </header>
 
           <div className="boardModalContent">
             <div className="boardModalLeft">
+              <section className="boardModalRow">
+                <span className="boardModalLabel">Atananlar</span>
+                <div className="boardModalAssignees">
+                  {card.assignees.length === 0 && (
+                    <span className="muted" style={{ fontSize: 13 }}>Henüz atanmış kimse yok</span>
+                  )}
+                  {card.assignees.map(({ member }) => (
+                    <span key={member.id} className="boardAssigneeChip" title={member.name}>
+                      <span className="boardAssigneeAvatar">{member.name.charAt(0).toUpperCase()}</span>
+                      <span className="boardAssigneeName">{member.name}</span>
+                      {!readOnly && (
+                        <button
+                          type="button"
+                          className="boardAssigneeRemove"
+                          aria-label="Çıkar"
+                          onClick={() => {
+                            const next = card.assignees.filter((a) => a.member.id !== member.id).map((a) => a.member.id);
+                            void onSetAssignees(next);
+                          }}
+                        >×</button>
+                      )}
+                    </span>
+                  ))}
+                  {!readOnly && (
+                    <button
+                      type="button"
+                      className="boardModalChipBtn"
+                      onClick={() => setAssigneePopoverOpen((v) => !v)}
+                    >
+                      + Ata
+                    </button>
+                  )}
+                </div>
+                {assigneePopoverOpen && !readOnly && (
+                  <div className="boardLabelPopover">
+                    <div className="boardLabelPopoverHead">
+                      <p className="boardLabelPopoverTitle">Üyeler</p>
+                      <button
+                        type="button"
+                        className="boardLabelPopoverClose"
+                        onClick={() => setAssigneePopoverOpen(false)}
+                        aria-label="Kapat"
+                      >×</button>
+                    </div>
+                    <div className="boardLabelPopoverList">
+                      {members.length === 0 && <p className="muted" style={{ fontSize: 12 }}>Üye yok</p>}
+                      {members.map((m) => {
+                        const assigned = card.assignees.some((a) => a.member.id === m.id);
+                        return (
+                          <button
+                            key={m.id}
+                            type="button"
+                            className="boardAssigneePopoverItem"
+                            onClick={() => {
+                              const cur = new Set(card.assignees.map((a) => a.member.id));
+                              if (cur.has(m.id)) cur.delete(m.id);
+                              else cur.add(m.id);
+                              void onSetAssignees(Array.from(cur));
+                            }}
+                          >
+                            <span className="boardAssigneeAvatar">{m.name.charAt(0).toUpperCase()}</span>
+                            <span style={{ flex: 1 }}>{m.name}</span>
+                            {assigned && <span style={{ color: '#00d1b6' }}>✓</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </section>
+
+              <section className="boardModalRow">
+                <span className="boardModalLabel">Kapak Rengi</span>
+                <div className="boardCoverPicker">
+                  {COVER_COLORS.map((c) => {
+                    const active = (card.coverColor ?? '') === c;
+                    return (
+                      <button
+                        key={c || 'none'}
+                        type="button"
+                        className={`boardCoverSwatch${active ? ' isActive' : ''}${!c ? ' isNone' : ''}`}
+                        style={c ? { background: c } : undefined}
+                        onClick={() => { if (!readOnly) void runUpdate({ coverColor: c || null }); }}
+                        disabled={readOnly}
+                        aria-label={c ? `Renk ${c}` : 'Renksiz'}
+                        title={c || 'Renksiz'}
+                      >
+                        {!c && '⌀'}
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+
               <section className="boardModalRow">
                 <span className="boardModalLabel">Öncelik</span>
                 <div className="boardPriorityRow">
@@ -389,6 +515,46 @@ export function BoardCardModal({
             </div>
 
             <aside className="boardModalRight">
+              <div className="boardModalSideTabs">
+                <button
+                  type="button"
+                  className={`boardModalSideTab${sideTab === 'checklist' ? ' isActive' : ''}`}
+                  onClick={() => setSideTab('checklist')}
+                >
+                  ☑ Check-list
+                  {totalItems > 0 && <span className="boardModalSideTabBadge">{doneItems}/{totalItems}</span>}
+                </button>
+                <button
+                  type="button"
+                  className={`boardModalSideTab${sideTab === 'comments' ? ' isActive' : ''}`}
+                  onClick={() => setSideTab('comments')}
+                >
+                  💬 Yorumlar
+                </button>
+                <button
+                  type="button"
+                  className={`boardModalSideTab${sideTab === 'activity' ? ' isActive' : ''}`}
+                  onClick={() => setSideTab('activity')}
+                >
+                  📜 Aktivite
+                </button>
+              </div>
+
+              {sideTab === 'comments' && (
+                <BoardCommentPanel
+                  bundle={bundle}
+                  cardId={card.id}
+                  members={members}
+                  currentUserId={currentUserId}
+                  readOnly={readOnly}
+                  onError={onError}
+                />
+              )}
+              {sideTab === 'activity' && (
+                <BoardActivityFeed bundle={bundle} cardId={card.id} onError={onError} />
+              )}
+              {sideTab === 'checklist' && (
+              <>
               <div className="boardChecklistHeader">
                 <span className="boardModalLabel">Check-list</span>
                 <span className="boardChecklistProgress">{doneItems}/{totalItems}</span>
@@ -431,6 +597,8 @@ export function BoardCardModal({
                   />
                   <button type="submit" disabled={!newItemText.trim()}>Ekle</button>
                 </form>
+              )}
+              </>
               )}
             </aside>
           </div>

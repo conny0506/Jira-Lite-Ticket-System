@@ -5,14 +5,19 @@ import { PrismaService } from '../prisma/prisma.service';
 import { BulkDeleteCardsDto } from './dto/bulk-delete-cards.dto';
 import { CreateCardDto } from './dto/create-card.dto';
 import { CreateChecklistItemDto } from './dto/create-checklist-item.dto';
+import { CreateCommentDto } from './dto/create-comment.dto';
 import { CreateLabelDto } from './dto/create-label.dto';
 import { MoveCardDto } from './dto/move-card.dto';
+import { ReactCommentDto } from './dto/react-comment.dto';
+import { SetCardAssigneesDto } from './dto/set-card-assignees.dto';
 import { SetCardLabelsDto } from './dto/set-card-labels.dto';
 import { UpdateCardDto } from './dto/update-card.dto';
 import { UpdateChecklistItemDto } from './dto/update-checklist-item.dto';
+import { UpdateCommentDto } from './dto/update-comment.dto';
 
 const cardSelect = {
   id: true,
+  seq: true,
   title: true,
   description: true,
   status: true,
@@ -21,6 +26,9 @@ const cardSelect = {
   dueAt: true,
   position: true,
   hideCompletedChecklist: true,
+  archivedAt: true,
+  coverColor: true,
+  coverImageUrl: true,
   createdAt: true,
   updatedAt: true,
   createdBy: { select: { id: true, name: true } },
@@ -39,7 +47,34 @@ const cardSelect = {
       createdAt: true,
     },
   },
+  assignees: {
+    select: {
+      member: { select: { id: true, name: true, email: true, role: true } },
+    },
+  },
 } satisfies Prisma.BoardCardSelect;
+
+const commentSelect = {
+  id: true,
+  cardId: true,
+  body: true,
+  mentions: true,
+  createdAt: true,
+  updatedAt: true,
+  author: { select: { id: true, name: true, role: true } },
+  reactions: {
+    select: {
+      emoji: true,
+      member: { select: { id: true, name: true } },
+    },
+  },
+} satisfies Prisma.BoardCommentSelect;
+
+function parseMentions(body: string): string[] {
+  // @username veya @"name with spaces" — şu an basit token: word chars
+  const matches = body.match(/@([A-Za-zÇĞİÖŞÜçğıöşü][\wÇĞİÖŞÜçğıöşü.\-]{1,40})/g) ?? [];
+  return Array.from(new Set(matches.map((m) => m.slice(1))));
+}
 
 function assertWriter(role: string) {
   if (role !== 'CAPTAIN' && role !== 'BOARD') {
@@ -56,8 +91,25 @@ export class BoardService {
 
   async listCards() {
     return this.prisma.boardCard.findMany({
+      where: { archivedAt: null },
       orderBy: [{ status: 'asc' }, { position: 'asc' }, { createdAt: 'asc' }],
       select: cardSelect,
+    });
+  }
+
+  async listArchived() {
+    return this.prisma.boardCard.findMany({
+      where: { archivedAt: { not: null } },
+      orderBy: { archivedAt: 'desc' },
+      select: cardSelect,
+    });
+  }
+
+  async listMembers() {
+    return this.prisma.teamMember.findMany({
+      where: { active: true },
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true, email: true, role: true },
     });
   }
 
@@ -101,7 +153,160 @@ export class BoardService {
     if (dto.startAt !== undefined) data.startAt = dto.startAt ? new Date(dto.startAt) : null;
     if (dto.dueAt !== undefined) data.dueAt = dto.dueAt ? new Date(dto.dueAt) : null;
     if (dto.hideCompletedChecklist !== undefined) data.hideCompletedChecklist = dto.hideCompletedChecklist;
+    if (dto.coverColor !== undefined) data.coverColor = dto.coverColor;
+    if (dto.coverImageUrl !== undefined) data.coverImageUrl = dto.coverImageUrl;
     return this.prisma.boardCard.update({ where: { id: cardId }, data, select: cardSelect });
+  }
+
+  async archiveCard(actorId: string, role: string, cardId: string) {
+    assertWriter(role);
+    const exists = await this.prisma.boardCard.findUnique({ where: { id: cardId }, select: { id: true, title: true } });
+    if (!exists) throw new NotFoundException('Kart bulunamadi');
+    const updated = await this.prisma.boardCard.update({
+      where: { id: cardId },
+      data: { archivedAt: new Date() },
+      select: cardSelect,
+    });
+    await this.auditLogs.log(actorId, 'BOARD_CARD_ARCHIVE', 'BOARD_CARD', cardId, { title: exists.title });
+    return updated;
+  }
+
+  async restoreCard(actorId: string, role: string, cardId: string) {
+    assertWriter(role);
+    const exists = await this.prisma.boardCard.findUnique({ where: { id: cardId }, select: { id: true, title: true } });
+    if (!exists) throw new NotFoundException('Kart bulunamadi');
+    const updated = await this.prisma.boardCard.update({
+      where: { id: cardId },
+      data: { archivedAt: null },
+      select: cardSelect,
+    });
+    await this.auditLogs.log(actorId, 'BOARD_CARD_RESTORE', 'BOARD_CARD', cardId, { title: exists.title });
+    return updated;
+  }
+
+  async setCardAssignees(actorId: string, role: string, cardId: string, dto: SetCardAssigneesDto) {
+    assertWriter(role);
+    const card = await this.prisma.boardCard.findUnique({ where: { id: cardId }, select: { id: true } });
+    if (!card) throw new NotFoundException('Kart bulunamadi');
+    if (dto.memberIds.length > 0) {
+      const found = await this.prisma.teamMember.findMany({
+        where: { id: { in: dto.memberIds } },
+        select: { id: true },
+      });
+      if (found.length !== dto.memberIds.length) {
+        throw new NotFoundException('Bir veya daha fazla üye bulunamadı');
+      }
+    }
+    await this.prisma.$transaction([
+      this.prisma.boardCardAssignee.deleteMany({ where: { cardId } }),
+      ...(dto.memberIds.length
+        ? [
+            this.prisma.boardCardAssignee.createMany({
+              data: dto.memberIds.map((memberId) => ({ cardId, memberId })),
+            }),
+          ]
+        : []),
+    ]);
+    await this.auditLogs.log(actorId, 'BOARD_CARD_ASSIGN', 'BOARD_CARD', cardId, { memberIds: dto.memberIds });
+    return this.prisma.boardCard.findUnique({ where: { id: cardId }, select: cardSelect });
+  }
+
+  // ---- Comments ----
+  async listComments(cardId: string) {
+    const card = await this.prisma.boardCard.findUnique({ where: { id: cardId }, select: { id: true } });
+    if (!card) throw new NotFoundException('Kart bulunamadi');
+    return this.prisma.boardComment.findMany({
+      where: { cardId },
+      orderBy: { createdAt: 'asc' },
+      select: commentSelect,
+    });
+  }
+
+  async createComment(actorId: string, cardId: string, dto: CreateCommentDto) {
+    const card = await this.prisma.boardCard.findUnique({ where: { id: cardId }, select: { id: true } });
+    if (!card) throw new NotFoundException('Kart bulunamadi');
+    const mentions = parseMentions(dto.body);
+    const comment = await this.prisma.boardComment.create({
+      data: { cardId, authorId: actorId, body: dto.body, mentions },
+      select: commentSelect,
+    });
+    await this.auditLogs.log(actorId, 'BOARD_COMMENT_CREATE', 'BOARD_COMMENT', comment.id, {
+      cardId,
+      mentions,
+    });
+    return comment;
+  }
+
+  async updateComment(actorId: string, role: string, commentId: string, dto: UpdateCommentDto) {
+    const comment = await this.prisma.boardComment.findUnique({
+      where: { id: commentId },
+      select: { id: true, authorId: true },
+    });
+    if (!comment) throw new NotFoundException('Yorum bulunamadi');
+    if (comment.authorId !== actorId && role !== 'CAPTAIN' && role !== 'BOARD') {
+      throw new ForbiddenException('Sadece kendi yorumunuzu düzenleyebilirsiniz');
+    }
+    const mentions = parseMentions(dto.body);
+    return this.prisma.boardComment.update({
+      where: { id: commentId },
+      data: { body: dto.body, mentions },
+      select: commentSelect,
+    });
+  }
+
+  async deleteComment(actorId: string, role: string, commentId: string) {
+    const comment = await this.prisma.boardComment.findUnique({
+      where: { id: commentId },
+      select: { id: true, authorId: true },
+    });
+    if (!comment) throw new NotFoundException('Yorum bulunamadi');
+    if (comment.authorId !== actorId && role !== 'CAPTAIN' && role !== 'BOARD') {
+      throw new ForbiddenException('Sadece kendi yorumunuzu silebilirsiniz');
+    }
+    await this.prisma.boardComment.delete({ where: { id: commentId } });
+    return { success: true };
+  }
+
+  async toggleReaction(actorId: string, commentId: string, dto: ReactCommentDto) {
+    const comment = await this.prisma.boardComment.findUnique({
+      where: { id: commentId },
+      select: { id: true },
+    });
+    if (!comment) throw new NotFoundException('Yorum bulunamadi');
+    const existing = await this.prisma.boardCommentReaction.findUnique({
+      where: { commentId_memberId_emoji: { commentId, memberId: actorId, emoji: dto.emoji } },
+    });
+    if (existing) {
+      await this.prisma.boardCommentReaction.delete({
+        where: { commentId_memberId_emoji: { commentId, memberId: actorId, emoji: dto.emoji } },
+      });
+    } else {
+      await this.prisma.boardCommentReaction.create({
+        data: { commentId, memberId: actorId, emoji: dto.emoji },
+      });
+    }
+    return this.prisma.boardComment.findUnique({ where: { id: commentId }, select: commentSelect });
+  }
+
+  // ---- Activity ----
+  async getCardActivity(cardId: string) {
+    const card = await this.prisma.boardCard.findUnique({ where: { id: cardId }, select: { id: true } });
+    if (!card) throw new NotFoundException('Kart bulunamadi');
+    const cardLogs = await this.prisma.auditLog.findMany({
+      where: { entityType: 'BOARD_CARD', entityId: cardId },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      select: {
+        id: true,
+        action: true,
+        entityType: true,
+        entityId: true,
+        metadata: true,
+        createdAt: true,
+        actor: { select: { id: true, name: true, role: true } },
+      },
+    });
+    return cardLogs;
   }
 
   async bulkDeleteCards(actorId: string, role: string, dto: BulkDeleteCardsDto) {

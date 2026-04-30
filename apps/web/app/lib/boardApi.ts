@@ -73,8 +73,42 @@ export type BoardChecklistItem = {
   createdAt: string;
 };
 
+export type BoardMember = {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+};
+
+export type BoardCommentReaction = {
+  emoji: string;
+  member: { id: string; name: string };
+};
+
+export type BoardComment = {
+  id: string;
+  cardId: string;
+  body: string;
+  mentions: string[];
+  createdAt: string;
+  updatedAt: string;
+  author: { id: string; name: string; role: string };
+  reactions: BoardCommentReaction[];
+};
+
+export type BoardActivityLog = {
+  id: string;
+  action: string;
+  entityType: string;
+  entityId: string;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+  actor: { id: string; name: string; role: string };
+};
+
 export type BoardCard = {
   id: string;
+  seq: number;
   title: string;
   description: string | null;
   status: BoardCardStatus;
@@ -83,9 +117,13 @@ export type BoardCard = {
   dueAt: string | null;
   position: number;
   hideCompletedChecklist: boolean;
+  archivedAt: string | null;
+  coverColor: string | null;
+  coverImageUrl: string | null;
   createdAt: string;
   updatedAt: string;
   createdBy: { id: string; name: string };
   labels: Array<{ label: BoardLabel }>;
   checklist: BoardChecklistItem[];
+  assignees: Array<{ member: BoardMember }>;
 };

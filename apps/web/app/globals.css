@@ -4772,6 +4772,291 @@ body[data-page="board"] {
   will-change: transform;
 }
 
+/* ===================== SPRINT 3 ===================== */
+
+/* === Live status rozet === */
+.boardLiveBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+  transition: all 0.25s ease;
+}
+.boardLiveDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: boardLivePulse 1.6s ease-in-out infinite;
+}
+@keyframes boardLivePulse {
+  0%, 100% { opacity: 0.6; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.15); box-shadow: 0 0 8px currentColor; }
+}
+.boardLiveBadge-connected {
+  background: rgba(0,209,182,0.14);
+  color: #00d1b6;
+  border-color: rgba(0,209,182,0.32);
+}
+.boardLiveBadge-connecting {
+  background: rgba(240,180,41,0.14);
+  color: #f0b429;
+  border-color: rgba(240,180,41,0.32);
+}
+.boardLiveBadge-disconnected {
+  background: rgba(231,76,60,0.14);
+  color: #ff8b80;
+  border-color: rgba(231,76,60,0.32);
+}
+.boardLiveBadge-disconnected .boardLiveDot { animation: none; opacity: 0.7; }
+
+/* === Export menu === */
+.boardExportWrap { position: relative; }
+.boardExportMenu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  display: none;
+  flex-direction: column;
+  gap: 2px;
+  background: rgba(20,24,34,0.98);
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 10px;
+  padding: 4px;
+  min-width: 140px;
+  box-shadow: 0 18px 40px rgba(0,0,0,0.5);
+  z-index: 30;
+}
+.boardExportWrap:hover .boardExportMenu,
+.boardExportWrap:focus-within .boardExportMenu { display: flex; }
+.boardExportMenu button {
+  background: transparent;
+  border: none;
+  color: var(--text);
+  text-align: left;
+  padding: 7px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+.boardExportMenu button:hover { background: rgba(35,164,255,0.18); }
+[data-theme="light"] .boardExportMenu { background: #ffffff; border-color: rgba(0,0,0,0.10); }
+[data-theme="light"] .boardExportMenu button:hover { background: rgba(35,127,212,0.10); }
+
+/* === Stats panel === */
+.boardStatsPanel {
+  background: linear-gradient(180deg, rgba(20,24,34,0.98), rgba(10,12,18,0.98));
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 18px;
+  width: min(900px, 100%);
+  max-height: 88vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+}
+[data-theme="light"] .boardStatsPanel {
+  background: linear-gradient(180deg, #ffffff, #f5f8fc);
+  border-color: rgba(0,0,0,0.08);
+}
+.boardStatsBody { padding: 20px 28px 28px; }
+.boardStatsKpis {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 24px;
+}
+@media (max-width: 720px) { .boardStatsKpis { grid-template-columns: repeat(2, 1fr); } }
+.boardStatsKpi {
+  background: linear-gradient(160deg, rgba(35,164,255,0.10), rgba(0,209,182,0.06));
+  border: 1px solid rgba(35,164,255,0.20);
+  border-radius: 14px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+[data-theme="light"] .boardStatsKpi {
+  background: linear-gradient(160deg, rgba(35,127,212,0.10), rgba(0,168,150,0.06));
+  border-color: rgba(35,127,212,0.20);
+}
+.boardStatsKpiVal {
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+.boardStatsKpiLbl {
+  font-size: 0.74rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+}
+.boardStatsChartGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+@media (max-width: 720px) { .boardStatsChartGrid { grid-template-columns: 1fr; } }
+.boardStatsChartCard {
+  background: rgba(255,255,255,0.025);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 14px;
+  padding: 14px 16px;
+}
+[data-theme="light"] .boardStatsChartCard { background: rgba(0,0,0,0.025); border-color: rgba(0,0,0,0.06); }
+.boardStatsChartCard-wide { grid-column: span 2; }
+@media (max-width: 720px) { .boardStatsChartCard-wide { grid-column: span 1; } }
+.boardStatsChartTitle {
+  margin: 0 0 12px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.boardStatsLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-top: 8px;
+}
+.boardStatsLegend strong { color: var(--text); margin-left: 2px; }
+.boardStatsLegendDot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+/* === Tier B7: Empty column shine === */
+.boardCardList:not(:has(.boardCard)) .boardEmptyHint {
+  position: relative;
+  overflow: hidden;
+}
+.boardCardList:not(:has(.boardCard)) .boardEmptyHint::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(35,164,255,0.10) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: boardEmptyShine 2.4s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes boardEmptyShine {
+  0%, 100% { background-position: 200% 0; opacity: 0; }
+  50%      { background-position: 0% 0;   opacity: 1; }
+}
+
+/* === Tier B8: Card hover preview tooltip === */
+.boardCard {
+  position: relative;
+}
+.boardCardPreview {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 12px;
+  right: 12px;
+  background: rgba(15,18,30,0.97);
+  border: 1px solid rgba(35,164,255,0.32);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 0.78rem;
+  color: rgba(230,241,255,0.92);
+  box-shadow: 0 18px 40px rgba(0,0,0,0.5);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 0.2s ease 0.5s, transform 0.2s ease 0.5s;
+  z-index: 15;
+  max-height: 100px;
+  overflow: hidden;
+}
+.boardCard:hover .boardCardPreview {
+  opacity: 1;
+  transform: translateY(0);
+  transition-delay: 0.6s;
+}
+[data-theme="light"] .boardCardPreview {
+  background: #ffffff;
+  border-color: rgba(35,127,212,0.32);
+  color: #0d1b2e;
+}
+
+/* === Tier C1: Grabbing cursor === */
+.boardCard:active { cursor: grabbing; }
+.boardCard.isDragging { cursor: grabbing; }
+
+/* === Tier C5: Count green pulse on add === */
+@keyframes boardCountAddPulse {
+  0%   { background: rgba(0,209,182,0.4); transform: scale(1.18); }
+  100% { background: rgba(255,255,255,0.06); transform: scale(1); }
+}
+.boardColumnCount[data-tick="true"] {
+  animation: boardCountTick 0.42s cubic-bezier(0.34, 1.56, 0.64, 1), boardCountAddPulse 0.7s ease-out;
+}
+
+/* === Tier C6: Drop settle === */
+@keyframes boardDropSettle {
+  0%   { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+/* layout=true ile framer zaten settle yapıyor — class hazır kalsın */
+
+/* === Tier C7: Sticky topbar dynamic blur (scroll yardımı yok ama hover'da artırılmış kontrast) === */
+.boardTopBar {
+  transition: backdrop-filter 0.3s ease, background 0.3s ease, box-shadow 0.3s ease;
+}
+
+/* === Tier C8: Theme switch color-mix smooth (zaten var ama daha geniş scope) === */
+body[data-page="board"] *:not(svg):not(path):not(.boardConfettiPiece) {
+  transition-property: background-color, border-color, color;
+  transition-duration: 0.32s;
+  transition-timing-function: ease;
+}
+
+/* === Tier C3: Label chip pulse on filter activate === */
+@keyframes boardChipActivatePulse {
+  0%   { transform: scale(1); }
+  50%  { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+.boardFilterChip.isActive {
+  animation: boardChipActivatePulse 0.32s ease-out;
+}
+
+/* === Tier C2: Modal backdrop blur fade === */
+.boardModalBackdrop {
+  transition: backdrop-filter 0.25s ease, background 0.25s ease;
+}
+
+/* === Tier C4: Bulk button morph (already smooth via state change; reserved) === */
+.boardActionBtn {
+  transition: all 0.18s ease;
+}
+
+/* === Page transition (B6): Board sayfası entrance === */
+@keyframes boardPageEnter {
+  from { opacity: 0; transform: translateY(12px) scale(0.995); }
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+.boardShell {
+  animation: boardPageEnter 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 /* === Top bar: light theme === */
 [data-theme="light"] .boardTopTitle { color: #0d1b2e; }
 [data-theme="light"] .boardBackLink { color: #4a6285; }

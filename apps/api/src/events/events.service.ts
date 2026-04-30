@@ -9,6 +9,14 @@ export type SsePayload =
   | { type: 'mention:new'; ticketId: string; ticketTitle: string; authorName: string; commentPreview: string }
   | { type: 'announcement:new'; title: string }
   | { type: 'ticket:deadline'; ticketId: string; ticketTitle: string; dueAt: string }
+  | { type: 'board:card:upserted'; cardId: string; actorId: string }
+  | { type: 'board:card:deleted'; cardId: string; actorId: string }
+  | { type: 'board:card:archived'; cardId: string; actorId: string }
+  | { type: 'board:card:restored'; cardId: string; actorId: string }
+  | { type: 'board:label:changed'; actorId: string }
+  | { type: 'board:comment:new'; cardId: string; commentId: string; authorId: string; authorName: string }
+  | { type: 'board:comment:updated'; cardId: string; commentId: string; actorId: string }
+  | { type: 'board:comment:deleted'; cardId: string; commentId: string; actorId: string }
   | { type: 'ping' };
 
 const SSE_TICKET_TTL_MS = 5 * 60 * 1000; // 5 dakika — access token süresiyle eşleşir

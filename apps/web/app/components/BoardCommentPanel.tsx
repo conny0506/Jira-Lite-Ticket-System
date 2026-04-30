@@ -38,6 +38,20 @@ export function BoardCommentPanel({ bundle, cardId, members, currentUserId, read
     return () => { cancelled = true; };
   }, [bundle, cardId, onError]);
 
+  // SSE'den gelen yorum event'lerine tepki ver — sadece bu kart için
+  useEffect(() => {
+    function onSseEvent(e: Event) {
+      const ev = e as CustomEvent<{ type: string; cardId?: string }>;
+      if (!ev.detail || ev.detail.cardId !== cardId) return;
+      // Bu kartın yorumları değişti — refetch
+      boardFetch<BoardComment[]>(bundle, `/board/cards/${cardId}/comments`)
+        .then(setComments)
+        .catch(() => {});
+    }
+    window.addEventListener('board-comment-event', onSseEvent);
+    return () => window.removeEventListener('board-comment-event', onSseEvent);
+  }, [bundle, cardId]);
+
   function detectMention(value: string, caret: number) {
     // caret'ten geriye git, ' ' veya başlangıçtan önceki son '@' karakteri
     let i = caret - 1;

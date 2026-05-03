@@ -408,6 +408,14 @@ model BoardComment {
   @@index([cardId, createdAt])
 }
 
+model BoardConfig {
+  id                 Int       @id @default(1)
+  wipLimitTodo       Int?
+  wipLimitInProgress Int?
+  wipLimitDone       Int?
+  updatedAt          DateTime  @updatedAt
+}
+
 model BoardCommentReaction {
   commentId String
   memberId  String

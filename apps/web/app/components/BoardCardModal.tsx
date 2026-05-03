@@ -3,6 +3,7 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { BoardAuthBundle, BoardCard, BoardCardPriority, BoardChecklistItem, BoardLabel, BoardMember } from '../lib/boardApi';
+import { renderMarkdown } from '../lib/miniMarkdown';
 import { BoardActivityFeed } from './BoardActivityFeed';
 import { BoardCommentPanel } from './BoardCommentPanel';
 
@@ -80,6 +81,7 @@ export function BoardCardModal({
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const [sideTab, setSideTab] = useState<SideTab>('checklist');
   const [assigneePopoverOpen, setAssigneePopoverOpen] = useState(false);
+  const [descPreview, setDescPreview] = useState(false);
   const titleDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const descDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedClearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -223,11 +225,12 @@ export function BoardCardModal({
         onClick={onClose}
       >
         <motion.div
+          layoutId={`boardCard-${card.id}`}
           className="boardModal boardModalSplit"
-          initial={{ opacity: 0, scale: 0.92, y: 16 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
           exit={{ opacity: 0, scale: 0.92, y: 16 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 26 }}
+          transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
           onClick={(e) => e.stopPropagation()}
         >
           {card.coverColor && (
@@ -487,16 +490,39 @@ export function BoardCardModal({
               </section>
 
               <section className="boardModalRow">
-                <span className="boardModalLabel">Aciklama</span>
-                <textarea
-                  className="boardModalDesc"
-                  rows={6}
-                  value={description}
-                  disabled={readOnly}
-                  onChange={(e) => scheduleDescription(e.target.value)}
-                  placeholder="Bu kartla ilgili notlari buraya ekleyin..."
-                  maxLength={5000}
-                />
+                <div className="boardModalDescHead">
+                  <span className="boardModalLabel">Aciklama</span>
+                  {description && (
+                    <button
+                      type="button"
+                      className="boardModalChipBtn"
+                      onClick={() => setDescPreview((v) => !v)}
+                      title="Markdown önizle / düzenle"
+                    >
+                      {descPreview ? '✎ Düzenle' : '👁 Önizle'}
+                    </button>
+                  )}
+                </div>
+                {descPreview ? (
+                  <div className="boardModalDescPreview" onClick={() => !readOnly && setDescPreview(false)}>
+                    {renderMarkdown(description)}
+                  </div>
+                ) : (
+                  <textarea
+                    className="boardModalDesc"
+                    rows={6}
+                    value={description}
+                    disabled={readOnly}
+                    onChange={(e) => scheduleDescription(e.target.value)}
+                    placeholder="Markdown destekli: **kalın** *italik* `kod` # başlık - liste [link](https://...)"
+                    maxLength={5000}
+                  />
+                )}
+                {!descPreview && (
+                  <span className="boardMdHint">
+                    Markdown: <code>**kalın**</code> <code>*italik*</code> <code>`kod`</code> <code># başlık</code> <code>- liste</code> <code>[link](url)</code>
+                  </span>
+                )}
               </section>
 
               {!readOnly && (

@@ -9,6 +9,7 @@ import {
   BoardCard,
   BoardCardPriority,
   BoardCardStatus,
+  BoardConfig,
   BoardLabel,
   BoardMember,
   boardFetch,
@@ -78,6 +79,9 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
   const [cards, setCards] = useState<BoardCard[]>([]);
   const [labels, setLabels] = useState<BoardLabel[]>([]);
   const [members, setMembers] = useState<BoardMember[]>([]);
+  const [config, setConfig] = useState<BoardConfig | null>(null);
+  const [editingWip, setEditingWip] = useState<BoardCardStatus | null>(null);
+  const [wipDraft, setWipDraft] = useState('');
   const [archivePanelOpen, setArchivePanelOpen] = useState(false);
   const [statsPanelOpen, setStatsPanelOpen] = useState(false);
   const [confetti, setConfetti] = useState<{ x: number; y: number; key: number } | null>(null);
@@ -122,15 +126,17 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
     let cancelled = false;
     (async () => {
       try {
-        const [cardsRes, labelsRes, membersRes] = await Promise.all([
+        const [cardsRes, labelsRes, membersRes, configRes] = await Promise.all([
           boardFetch<BoardCard[]>(bundle, '/board/cards'),
           boardFetch<BoardLabel[]>(bundle, '/board/labels'),
           boardFetch<BoardMember[]>(bundle, '/board/members'),
+          boardFetch<BoardConfig>(bundle, '/board/config'),
         ]);
         if (cancelled) return;
         setCards(cardsRes);
         setLabels(labelsRes);
         setMembers(membersRes);
+        setConfig(configRes);
       } catch (err) {
         handleApiError(err, 'Veriler yuklenemedi');
       } finally {
@@ -217,6 +223,32 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
       es?.close();
     };
   }, [bundle, requestCardsRefetch, refetchLabels, showToast]);
+
+  // Drag esnasında viewport kenarlarında otomatik scroll
+  useEffect(() => {
+    if (!draggingId) return;
+    let raf: number | null = null;
+    let lastY = 0;
+    function onDragOver(e: globalThis.DragEvent) {
+      lastY = e.clientY;
+    }
+    function tick() {
+      const margin = 100;
+      const speed = 14;
+      if (lastY > 0 && lastY < margin) {
+        window.scrollBy(0, -speed);
+      } else if (lastY > 0 && lastY > window.innerHeight - margin) {
+        window.scrollBy(0, speed);
+      }
+      raf = requestAnimationFrame(tick);
+    }
+    window.addEventListener('dragover', onDragOver);
+    raf = requestAnimationFrame(tick);
+    return () => {
+      window.removeEventListener('dragover', onDragOver);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [draggingId]);
 
   // ?card=<id> permalink → modal aç
   useEffect(() => {
@@ -459,6 +491,31 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
     } catch (err) {
       handleApiError(err, 'Kart kopyalanamadı');
     }
+  }
+
+  async function saveWipLimit(status: BoardCardStatus, raw: string) {
+    setEditingWip(null);
+    const trimmed = raw.trim();
+    const limit = trimmed === '' ? null : Math.max(0, parseInt(trimmed, 10));
+    if (trimmed !== '' && Number.isNaN(limit as number)) return;
+    const field = status === 'TODO' ? 'wipLimitTodo' : status === 'IN_PROGRESS' ? 'wipLimitInProgress' : 'wipLimitDone';
+    try {
+      const updated = await boardFetch<BoardConfig>(bundle, '/board/config', {
+        method: 'PATCH',
+        body: JSON.stringify({ [field]: limit }),
+      });
+      setConfig(updated);
+      showToast('success', limit === null ? 'WIP limit kaldırıldı' : `WIP limit ${limit} olarak kaydedildi`);
+    } catch (err) {
+      handleApiError(err, 'Limit kaydedilemedi');
+    }
+  }
+
+  function getWipLimit(status: BoardCardStatus): number | null {
+    if (!config) return null;
+    if (status === 'TODO') return config.wipLimitTodo;
+    if (status === 'IN_PROGRESS') return config.wipLimitInProgress;
+    return config.wipLimitDone;
   }
 
   async function handleExport(format: 'csv' | 'json') {
@@ -855,10 +912,12 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
             .sort((a, b) => a.position - b.position);
           const totalInColumn = cards.filter((c) => c.status === col.status).length;
           const isOver = overColumn === col.status;
+          const wipLimit = getWipLimit(col.status);
+          const wipBreached = wipLimit !== null && totalInColumn > wipLimit;
           return (
             <motion.section
               key={col.status}
-              className="boardColumn"
+              className={`boardColumn${wipBreached ? ' isWipBreached' : ''}`}
               data-over={isOver ? 'true' : 'false'}
               data-status={col.status}
               style={{ borderTop: `3px solid ${col.accent}` }}
@@ -882,7 +941,45 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
             >
               <header className="boardColumnHeader">
                 <span style={{ color: col.accent }}>{col.label}</span>
-                <span className="boardColumnCount" key={totalInColumn} data-tick="true">{totalInColumn}</span>
+                <span className="boardColumnCount" key={totalInColumn} data-tick="true">
+                  {totalInColumn}
+                  {getWipLimit(col.status) !== null && (
+                    <span
+                      className={`boardWipLimit${totalInColumn > (getWipLimit(col.status) ?? 0) ? ' isOver' : ''}`}
+                    >
+                      / {getWipLimit(col.status)}
+                    </span>
+                  )}
+                </span>
+                {!readOnly && editingWip !== col.status && (
+                  <button
+                    type="button"
+                    className="boardWipEditBtn"
+                    onClick={() => {
+                      setEditingWip(col.status);
+                      setWipDraft(String(getWipLimit(col.status) ?? ''));
+                    }}
+                    title="WIP limiti ayarla"
+                    aria-label="WIP limit"
+                  >⚙</button>
+                )}
+                {editingWip === col.status && (
+                  <form
+                    className="boardWipEditForm"
+                    onSubmit={(e) => { e.preventDefault(); void saveWipLimit(col.status, wipDraft); }}
+                  >
+                    <input
+                      type="number"
+                      min={0}
+                      placeholder="∞"
+                      value={wipDraft}
+                      onChange={(e) => setWipDraft(e.target.value)}
+                      onBlur={() => void saveWipLimit(col.status, wipDraft)}
+                      onKeyDown={(e) => { if (e.key === 'Escape') { setEditingWip(null); } }}
+                      autoFocus
+                    />
+                  </form>
+                )}
               </header>
 
               <div className="boardCardList">
@@ -910,7 +1007,7 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
                         <motion.article
                           layoutId={`boardCard-${card.id}`}
                           layout
-                          className={`boardCard${recentlyCreatedId === card.id ? ' isNew' : ''}${selected ? ' isSelected' : ''}${draggingId === card.id ? ' isDragging' : ''}${isHighOverdue ? ' isHighOverdue' : ''}${card.coverColor ? ' hasCover' : ''}`}
+                          className={`boardCard${recentlyCreatedId === card.id ? ' isNew' : ''}${selected ? ' isSelected' : ''}${draggingId === card.id ? ' isDragging' : ''}${isHighOverdue ? ' isHighOverdue' : ''}${card.coverColor ? ' hasCover' : ''}${openCardId === card.id ? ' isMorphing' : ''}`}
                           data-priority={priority}
                           initial={{ opacity: 0, scale: 0.9, y: -8 }}
                           animate={{ opacity: 1, scale: 1, y: 0 }}

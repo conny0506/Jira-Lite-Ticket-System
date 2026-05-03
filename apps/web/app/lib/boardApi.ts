@@ -73,6 +73,14 @@ export type BoardChecklistItem = {
   createdAt: string;
 };
 
+export type BoardConfig = {
+  id: number;
+  wipLimitTodo: number | null;
+  wipLimitInProgress: number | null;
+  wipLimitDone: number | null;
+  updatedAt: string;
+};
+
 export type BoardMember = {
   id: string;
   name: string;

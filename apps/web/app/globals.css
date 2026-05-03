@@ -5057,6 +5057,142 @@ body[data-page="board"] *:not(svg):not(path):not(.boardConfettiPiece) {
   animation: boardPageEnter 0.45s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* ===================== SPRINT 4 ===================== */
+
+/* === B1: layoutId card→modal morph === */
+.boardCard.isMorphing {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* === WIP limits === */
+.boardWipLimit {
+  margin-left: 4px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.boardWipLimit.isOver {
+  color: #ff8b80;
+}
+.boardWipEditBtn {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.85rem;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  margin-left: 4px;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+}
+.boardColumn:hover .boardWipEditBtn { opacity: 0.7; }
+.boardWipEditBtn:hover { opacity: 1 !important; background: rgba(255,255,255,0.06); color: var(--text); }
+.boardWipEditForm {
+  display: inline-flex;
+  margin-left: 4px;
+}
+.boardWipEditForm input {
+  width: 50px;
+  background: rgba(0,0,0,0.3);
+  border: 1px solid rgba(35,164,255,0.55);
+  color: var(--text);
+  padding: 2px 6px;
+  border-radius: 5px;
+  font-size: 0.78rem;
+  text-align: center;
+}
+.boardWipEditForm input:focus { outline: none; }
+[data-theme="light"] .boardWipEditForm input { background: #ffffff; }
+
+.boardColumn.isWipBreached {
+  border-color: rgba(231,76,60,0.55) !important;
+  box-shadow: 0 14px 40px rgba(231,76,60,0.18), inset 0 1px 0 rgba(255,255,255,0.05);
+  animation: boardWipBreachPulse 2.6s ease-in-out infinite;
+}
+@keyframes boardWipBreachPulse {
+  0%, 100% { box-shadow: 0 14px 40px rgba(231,76,60,0.16), inset 0 1px 0 rgba(255,255,255,0.05); }
+  50%      { box-shadow: 0 14px 40px rgba(231,76,60,0.32), inset 0 1px 0 rgba(255,255,255,0.05), 0 0 0 2px rgba(231,76,60,0.18); }
+}
+
+/* === Markdown render === */
+.boardModalDescHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.boardModalDescPreview {
+  background: rgba(0,0,0,0.20);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--text);
+  cursor: text;
+  min-height: 60px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+[data-theme="light"] .boardModalDescPreview {
+  background: #ffffff;
+  border-color: rgba(0,0,0,0.10);
+}
+.boardModalDescPreview > *:first-child { margin-top: 0; }
+.boardModalDescPreview > *:last-child { margin-bottom: 0; }
+
+.boardMdP { margin: 0 0 8px; }
+.boardMdH1, .boardMdH2, .boardMdH3 {
+  margin: 14px 0 6px;
+  color: var(--text);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.boardMdH1 { font-size: 1.15rem; }
+.boardMdH2 { font-size: 1.02rem; }
+.boardMdH3 { font-size: 0.94rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.boardMdList { margin: 6px 0; padding-left: 22px; }
+.boardMdList li { margin-bottom: 3px; }
+.boardMdHr {
+  border: none;
+  border-top: 1px solid rgba(255,255,255,0.10);
+  margin: 12px 0;
+}
+[data-theme="light"] .boardMdHr { border-top-color: rgba(0,0,0,0.10); }
+.boardMdLink {
+  color: #5fbdff;
+  text-decoration: none;
+  border-bottom: 1px dashed rgba(95,189,255,0.4);
+}
+.boardMdLink:hover { border-bottom-style: solid; }
+[data-theme="light"] .boardMdLink { color: #1a7fd4; border-bottom-color: rgba(26,127,212,0.5); }
+.boardMdCode {
+  background: rgba(255,255,255,0.08);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', 'Consolas', monospace;
+  font-size: 0.85em;
+  color: #ffd86b;
+}
+[data-theme="light"] .boardMdCode { background: rgba(0,0,0,0.06); color: #b1213a; }
+
+.boardMdHint {
+  font-size: 0.7rem;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.boardMdHint code {
+  background: rgba(255,255,255,0.06);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: 'JetBrains Mono', 'Consolas', monospace;
+  font-size: 0.95em;
+  margin: 0 2px;
+}
+[data-theme="light"] .boardMdHint code { background: rgba(0,0,0,0.05); }
+
 /* === Top bar: light theme === */
 [data-theme="light"] .boardTopTitle { color: #0d1b2e; }
 [data-theme="light"] .boardBackLink { color: #4a6285; }

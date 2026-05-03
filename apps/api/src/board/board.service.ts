@@ -107,6 +107,27 @@ export class BoardService {
     });
   }
 
+  async getConfig() {
+    let cfg = await this.prisma.boardConfig.findUnique({ where: { id: 1 } });
+    if (!cfg) {
+      cfg = await this.prisma.boardConfig.create({
+        data: { id: 1 },
+      });
+    }
+    return cfg;
+  }
+
+  async updateConfig(actorId: string, role: string, data: { wipLimitTodo?: number | null; wipLimitInProgress?: number | null; wipLimitDone?: number | null }) {
+    assertWriter(role);
+    await this.getConfig(); // ensure exists
+    const cfg = await this.prisma.boardConfig.update({
+      where: { id: 1 },
+      data,
+    });
+    this.events.broadcastAll({ type: 'board:label:changed', actorId }); // reuse label:changed as generic refresh signal
+    return cfg;
+  }
+
   async listMembers() {
     return this.prisma.teamMember.findMany({
       where: { active: true },

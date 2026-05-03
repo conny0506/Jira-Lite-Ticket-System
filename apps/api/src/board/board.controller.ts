@@ -17,6 +17,7 @@ import { ReactCommentDto } from './dto/react-comment.dto';
 import { SetCardAssigneesDto } from './dto/set-card-assignees.dto';
 import { SetCardLabelsDto } from './dto/set-card-labels.dto';
 import { UpdateCardDto } from './dto/update-card.dto';
+import { UpdateBoardConfigDto } from './dto/update-config.dto';
 import { UpdateChecklistItemDto } from './dto/update-checklist-item.dto';
 import { UpdateCommentDto } from './dto/update-comment.dto';
 
@@ -175,6 +176,21 @@ export class BoardController {
   @Get('members')
   listMembers(@CurrentUserId() _actorId: string) {
     return this.boardService.listMembers();
+  }
+
+  // ---- Config (WIP limits) ----
+  @Get('config')
+  getConfig(@CurrentUserId() _actorId: string) {
+    return this.boardService.getConfig();
+  }
+
+  @Patch('config')
+  updateConfig(
+    @CurrentUserId() actorId: string,
+    @CurrentUserRole() role: string,
+    @Body() dto: UpdateBoardConfigDto,
+  ) {
+    return this.boardService.updateConfig(actorId, role, dto);
   }
 
   // ---- Assignees ----

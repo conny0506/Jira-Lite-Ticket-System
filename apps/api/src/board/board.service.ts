@@ -77,8 +77,10 @@ function parseMentions(body: string): string[] {
   return Array.from(new Set(matches.map((m) => m.slice(1))));
 }
 
+const WRITER_ROLES = ['CAPTAIN', 'BOARD', 'RD_LEADER', 'ADMIN'];
+
 function assertWriter(role: string) {
-  if (role !== 'CAPTAIN' && role !== 'BOARD') {
+  if (!WRITER_ROLES.includes(role)) {
     throw new ForbiddenException('Bu islemi yapma yetkiniz yok');
   }
 }
@@ -90,6 +92,14 @@ export class BoardService {
     private readonly auditLogs: AuditLogsService,
     private readonly events: EventsService,
   ) {}
+
+  private async assertWriterOrAssignee(role: string, actorId: string, cardId: string) {
+    if (WRITER_ROLES.includes(role)) return;
+    const assigned = await this.prisma.boardCardAssignee.findUnique({
+      where: { cardId_memberId: { cardId, memberId: actorId } },
+    });
+    if (!assigned) throw new ForbiddenException('Bu islemi yapma yetkiniz yok');
+  }
 
   async listCards() {
     return this.prisma.boardCard.findMany({
@@ -214,7 +224,7 @@ export class BoardService {
 
   async setCardAssignees(actorId: string, role: string, cardId: string, dto: SetCardAssigneesDto) {
     assertWriter(role);
-    const card = await this.prisma.boardCard.findUnique({ where: { id: cardId }, select: { id: true } });
+    const card = await this.prisma.boardCard.findUnique({ where: { id: cardId }, select: { id: true, title: true } });
     if (!card) throw new NotFoundException('Kart bulunamadi');
     if (dto.memberIds.length > 0) {
       const found = await this.prisma.teamMember.findMany({
@@ -225,6 +235,13 @@ export class BoardService {
         throw new NotFoundException('Bir veya daha fazla üye bulunamadı');
       }
     }
+    const existing = await this.prisma.boardCardAssignee.findMany({
+      where: { cardId },
+      select: { memberId: true },
+    });
+    const existingIds = new Set(existing.map((a) => a.memberId));
+    const newAssigneeIds = dto.memberIds.filter((id) => !existingIds.has(id));
+
     await this.prisma.$transaction([
       this.prisma.boardCardAssignee.deleteMany({ where: { cardId } }),
       ...(dto.memberIds.length
@@ -237,6 +254,18 @@ export class BoardService {
     ]);
     await this.auditLogs.log(actorId, 'BOARD_CARD_ASSIGN', 'BOARD_CARD', cardId, { memberIds: dto.memberIds });
     this.events.broadcastAll({ type: 'board:card:upserted', cardId, actorId });
+
+    if (newAssigneeIds.length > 0) {
+      const actor = await this.prisma.teamMember.findUnique({ where: { id: actorId }, select: { name: true } });
+      const assignedByName = actor?.name ?? 'Birisi';
+      this.events.broadcast(newAssigneeIds, {
+        type: 'board:card:assigned',
+        cardId,
+        cardTitle: card.title,
+        assignedByName,
+      });
+    }
+
     return this.prisma.boardCard.findUnique({ where: { id: cardId }, select: cardSelect });
   }
 
@@ -254,14 +283,27 @@ export class BoardService {
   async createComment(actorId: string, cardId: string, dto: CreateCommentDto) {
     const card = await this.prisma.boardCard.findUnique({ where: { id: cardId }, select: { id: true } });
     if (!card) throw new NotFoundException('Kart bulunamadi');
-    const mentions = parseMentions(dto.body);
+    const mentionNames = parseMentions(dto.body);
+    // Resolve mention names to member IDs (try both exact and underscore→space)
+    const resolvedNames = Array.from(new Set([
+      ...mentionNames,
+      ...mentionNames.map((n) => n.replace(/_/g, ' ')),
+    ]));
+    const mentionedMembers = mentionNames.length > 0
+      ? await this.prisma.teamMember.findMany({
+          where: { name: { in: resolvedNames } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const mentionIds = mentionedMembers.map((m) => m.id);
+
     const comment = await this.prisma.boardComment.create({
-      data: { cardId, authorId: actorId, body: dto.body, mentions },
+      data: { cardId, authorId: actorId, body: dto.body, mentions: mentionIds },
       select: commentSelect,
     });
     await this.auditLogs.log(actorId, 'BOARD_COMMENT_CREATE', 'BOARD_COMMENT', comment.id, {
       cardId,
-      mentions,
+      mentions: mentionIds,
     });
     this.events.broadcastAll({
       type: 'board:comment:new',
@@ -270,6 +312,17 @@ export class BoardService {
       authorId: actorId,
       authorName: comment.author.name,
     });
+    if (mentionIds.length > 0) {
+      const notifIds = mentionIds.filter((id) => id !== actorId);
+      if (notifIds.length > 0) {
+        this.events.broadcast(notifIds, {
+          type: 'board:mention:new',
+          cardId,
+          commentId: comment.id,
+          authorName: comment.author.name,
+        });
+      }
+    }
     return comment;
   }
 
@@ -279,7 +332,7 @@ export class BoardService {
       select: { id: true, authorId: true },
     });
     if (!comment) throw new NotFoundException('Yorum bulunamadi');
-    if (comment.authorId !== actorId && role !== 'CAPTAIN' && role !== 'BOARD') {
+    if (comment.authorId !== actorId && !WRITER_ROLES.includes(role)) {
       throw new ForbiddenException('Sadece kendi yorumunuzu düzenleyebilirsiniz');
     }
     const mentions = parseMentions(dto.body);
@@ -298,7 +351,7 @@ export class BoardService {
       select: { id: true, authorId: true, cardId: true },
     });
     if (!comment) throw new NotFoundException('Yorum bulunamadi');
-    if (comment.authorId !== actorId && role !== 'CAPTAIN' && role !== 'BOARD') {
+    if (comment.authorId !== actorId && !WRITER_ROLES.includes(role)) {
       throw new ForbiddenException('Sadece kendi yorumunuzu silebilirsiniz');
     }
     await this.prisma.boardComment.delete({ where: { id: commentId } });
@@ -522,9 +575,9 @@ export class BoardService {
   }
 
   async updateChecklistItem(actorId: string, role: string, itemId: string, dto: UpdateChecklistItemDto) {
-    assertWriter(role);
-    const exists = await this.prisma.boardChecklistItem.findUnique({ where: { id: itemId }, select: { id: true } });
+    const exists = await this.prisma.boardChecklistItem.findUnique({ where: { id: itemId }, select: { id: true, cardId: true } });
     if (!exists) throw new NotFoundException('Madde bulunamadi');
+    await this.assertWriterOrAssignee(role, actorId, exists.cardId);
     const data: Prisma.BoardChecklistItemUpdateInput = {};
     if (dto.text !== undefined) data.text = dto.text;
     if (dto.done !== undefined) data.done = dto.done;

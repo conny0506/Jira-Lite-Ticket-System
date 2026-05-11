@@ -189,8 +189,24 @@ export function BoardView({ bundle, readOnly, onAuthError }: Props) {
         };
         es.onmessage = (e) => {
           try {
-            const p = JSON.parse(e.data) as { type: string; actorId?: string; cardId?: string; commentId?: string; authorName?: string };
+            const p = JSON.parse(e.data) as {
+              type: string;
+              actorId?: string;
+              cardId?: string;
+              cardTitle?: string;
+              commentId?: string;
+              authorName?: string;
+              assignedByName?: string;
+            };
             if (p.type === 'ping') return;
+            if (p.type === 'board:card:assigned') {
+              showToast('info', `${p.assignedByName ?? 'Birisi'} sizi "${p.cardTitle ?? 'bir kart'}" adlı Odak Panosu kartına atadı`);
+              return;
+            }
+            if (p.type === 'board:mention:new') {
+              showToast('info', `${p.authorName ?? 'Birisi'} sizi bir yorumda etiketledi`);
+              return;
+            }
             // Kendi event'lerimizi ignore et (optimistik update zaten yaptık)
             if (p.actorId && p.actorId === bundle.user.id) return;
             if (p.type === 'board:card:upserted' || p.type === 'board:card:restored') {

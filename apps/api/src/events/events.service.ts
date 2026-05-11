@@ -17,6 +17,8 @@ export type SsePayload =
   | { type: 'board:comment:new'; cardId: string; commentId: string; authorId: string; authorName: string }
   | { type: 'board:comment:updated'; cardId: string; commentId: string; actorId: string }
   | { type: 'board:comment:deleted'; cardId: string; commentId: string; actorId: string }
+  | { type: 'board:card:assigned'; cardId: string; cardTitle: string; assignedByName: string }
+  | { type: 'board:mention:new'; cardId: string; commentId: string; authorName: string }
   | { type: 'ping' };
 
 const SSE_TICKET_TTL_MS = 5 * 60 * 1000; // 5 dakika — access token süresiyle eşleşir

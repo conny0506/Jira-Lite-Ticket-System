@@ -4,6 +4,7 @@ import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { AnnouncementsModule } from './announcements/announcements.module';
+import { CalendarNotesModule } from './calendar-notes/calendar-notes.module';
 import { AuditLogsModule } from './audit-logs/audit-logs.module';
 import { AuthModule } from './auth/auth.module';
 import { BoardModule } from './board/board.module';
@@ -28,6 +29,7 @@ import { TicketsModule } from './tickets/tickets.module';
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
     AnnouncementsModule,
     AuditLogsModule,
+    CalendarNotesModule,
     AuthModule,
     BoardModule,
     EventsModule,

@@ -257,12 +257,41 @@ board:comment:new     board:comment:updated board:comment:deleted
 
 ## Email Servisi
 
-Desteklenen provider'lar (`EMAIL_PROVIDER` env):
-- `smtp` → Nodemailer (Gmail SMTP, özel sunucu)
-- `resend` → Resend API
-- `gmail` → Gmail OAuth2
+**Aktif production provider: `gmail_api`** (Render.com SMTP portlarını engellediği için SMTP çalışmaz)
 
-Email türleri: parola sıfırlama, görev ataması, toplantı hatırlatıcı (15 dk önce), deadline hatırlatıcı (24 saat önce).
+Desteklenen provider'lar (`EMAIL_PROVIDER` env):
+- `gmail_api` → Gmail OAuth2 — **production'da kullanılan** (HTTP tabanlı, Render'da çalışır)
+- `smtp` → Nodemailer — sadece lokal geliştirme / kendi sunucusu olanlar için
+- `resend` → Resend API — alternatif HTTP tabanlı seçenek
+
+**Gmail API kurulum için gerekli env var'lar:**
+```bash
+EMAIL_PROVIDER=gmail_api
+GMAIL_CLIENT_ID=...         # Google Cloud Console → OAuth 2.0 Client ID
+GMAIL_CLIENT_SECRET=...     # Google Cloud Console → OAuth 2.0 Client Secret
+GMAIL_REFRESH_TOKEN=...     # OAuth Playground'dan alınır (7 günde bir yenilenmeli — test mode)
+GMAIL_SENDER_EMAIL=...      # Gönderici Gmail adresi (ulgenarge@gmail.com)
+```
+
+**Önemli:** Google Cloud Console'da OAuth consent screen "Testing" modunda olduğu için
+refresh token 7 günde bir sona erer. Production'a almak için "Publishing status → Publish App" gerekir.
+
+**Gmail API refresh token yenileme:**
+1. [developers.google.com/oauthplayground](https://developers.google.com/oauthplayground)
+2. Dişli → Use your own OAuth credentials → Client ID + Secret gir
+3. Gmail API v1 → `gmail.send` scope seç → Authorize APIs
+4. `ulgenarge@gmail.com` ile giriş → Exchange authorization code for tokens
+5. Yeni `refresh_token` değerini Render'daki `GMAIL_REFRESH_TOKEN`'a yaz
+
+**Email türleri** (`auth/password-reset-mail.service.ts`):
+- Parola sıfırlama
+- Görev ataması (ticket assign)
+- Toplantı hatırlatıcı (15 dk önce — `meetings/meetings.service.ts`)
+- Toplantı güncelleme / iptal
+- Deadline hatırlatıcı (24 saat önce — `scheduler/deadline-scheduler.service.ts`)
+- Hoş geldin (yeni üye)
+- Terfi bildirimi
+- Hata raporu (`BUG_REPORT_EMAIL_TO` env'e gider)
 
 ---
 
@@ -281,47 +310,60 @@ Limit: 25 MB. UUID ile dosya adı yeniden oluşturulur (güvenlik).
 
 ## Ortam Değişkenleri
 
-Kritik değişkenler (tam liste `.env.example`'da):
+Kritik değişkenler — production (Render.com) mevcut değerleri:
 
 ```bash
-# Veritabanı
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/jira_lite"
-DIRECT_DATABASE_URL="..."     # PgBouncer bypass (migration için)
+# Veritabanı (Neon.tech)
+DATABASE_URL="postgresql://neondb_owner:...@ep-square-sound-abuqt1b9-pooler.eu-west-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+DIRECT_DATABASE_URL="postgresql://neondb_owner:...@ep-square-sound-abuqt1b9.eu-west-2.aws.neon.tech/neondb?..."
 
-# Redis
-REDIS_HOST=127.0.0.1
-REDIS_PORT=6379
+# Redis (Upstash)
+REDIS_URL=rediss://default:...@grateful-sawfly-66265.upstash.io:6379
 
 # Uygulama
 API_PORT=4000
-NEXT_PUBLIC_API_URL=http://localhost:4000
-WEB_ORIGIN=http://localhost:3000
+WEB_ORIGIN=https://jira-lite-ticket-system-web.vercel.app
+PASSWORD_RESET_URL_BASE=https://jira-lite-ticket-system-web.vercel.app/reset-password
 
 # Güvenlik
-JWT_SECRET=dev-secret-change-me
-ACCESS_TOKEN_TTL_SECONDS=300
-REFRESH_TOKEN_TTL_DAYS=14
+JWT_SECRET=...
 ONE_SESSION_PER_USER=true
+COOKIE_SECURE=true
+COOKIE_SAME_SITE=none
+TRUST_PROXY=true
 
-# Kurulum
-BOOTSTRAP_CAPTAIN_EMAIL=captain@ulgen.local
-BOOTSTRAP_CAPTAIN_PASSWORD=1234
+# Auth rate limit
+AUTH_LOGIN_RATE_LIMIT_MAX=10
+AUTH_LOGIN_RATE_LIMIT_WINDOW_SECONDS=60
+AUTH_REFRESH_RATE_LIMIT_MAX=60
+AUTH_REFRESH_RATE_LIMIT_WINDOW_SECONDS=300
+AUTH_RATE_LIMIT_USE_REDIS=true
 
-# Email
-EMAIL_PROVIDER=smtp          # smtp | resend | gmail
-SMTP_HOST=
-SMTP_PORT=
-SMTP_USER=
-SMTP_PASS=
-SMTP_FROM=
+# Email — production'da Gmail API kullanılıyor (SMTP Render'da çalışmaz)
+EMAIL_PROVIDER=gmail_api
+GMAIL_CLIENT_ID=...
+GMAIL_CLIENT_SECRET=...
+GMAIL_REFRESH_TOKEN=...      # 7 günde bir yenilenmeli (OAuth consent screen test modunda)
+GMAIL_SENDER_EMAIL=ulgenarge@gmail.com
+SMTP_FROM=mustafa.din067@gmail.com   # fallback olarak bırakıldı
+EMAIL_HTTP_TIMEOUT_MS=15000
+BUG_REPORT_EMAIL_TO=mustafa.din067@gmail.com
 
-# Depolama
-STORAGE_DRIVER=local         # local | s3
-S3_BUCKET=
-S3_REGION=
-S3_ENDPOINT=
-S3_ACCESS_KEY_ID=
-S3_SECRET_ACCESS_KEY=
+# Depolama (Cloudflare R2)
+STORAGE_DRIVER=s3
+S3_BUCKET=ulgen
+S3_REGION=auto
+S3_ENDPOINT=https://0890246daf44237ca037dcb2493c5f14.r2.cloudflarestorage.com
+S3_FORCE_PATH_STYLE=true
+S3_SIGNED_URL_TTL_SECONDS=300
+S3_ACCESS_KEY_ID=...
+S3_SECRET_ACCESS_KEY=...
+
+# Diğer
+NODE_ENV=production
+NPM_CONFIG_PRODUCTION=false
+PASSWORD_RESET_TTL_MINUTES=30
+BOOTSTRAP_CAPTAIN_PASSWORD=247115
 ```
 
 ---
@@ -360,13 +402,13 @@ npm run verify
 
 ## Üretim Dağıtımı
 
-| Servis | Platform | Yapılandırma |
-|--------|----------|-------------|
-| API | Render.com | `render.yaml` |
-| Web | Vercel | `apps/web/vercel.json` |
-| Veritabanı | Neon.tech (önerilir) | `DATABASE_URL` |
-| Redis | Upstash (önerilir) | `REDIS_URL` |
-| Dosyalar | Cloudflare R2 (önerilir) | `STORAGE_DRIVER=s3` |
+| Servis | Platform | URL |
+|--------|----------|-----|
+| API | Render.com | `jira-lite-api` servisi |
+| Web | Vercel | `https://jira-lite-ticket-system-web.vercel.app` |
+| Veritabanı | Neon.tech | `ep-square-sound-abuqt1b9.eu-west-2.aws.neon.tech` |
+| Redis | Upstash | `grateful-sawfly-66265.upstash.io` |
+| Dosyalar | Cloudflare R2 | bucket: `ulgen` |
 
 Render build adımları (`render.yaml`):
 1. `npm ci`
@@ -375,6 +417,9 @@ Render build adımları (`render.yaml`):
 4. `npm run build -w @jira-lite/api`
 
 Sağlık kontrolü: `GET /health`
+
+**Render'da değişiklik yapmak için:**
+- Dashboard → `jira-lite-api` → Environment (env var) veya Manual Deploy (redeploy)
 
 ---
 
@@ -418,3 +463,12 @@ apps/api/test/
 - WIP limitleri: `BoardConfig` tablosunda, kolon başına yapılandırılabilir
 - Tema: `data-theme` HTML attribute ile CSS değişken sistemi (dark/light)
 - Mobil: `clamp()` + CSS Grid/Flex, tam responsive
+
+---
+
+## Bilinen Sorunlar & Kısıtlamalar
+
+- **Render.com SMTP engeli:** Render outbound SMTP portlarını (587, 465) engeller. Bu yüzden `EMAIL_PROVIDER=smtp` production'da çalışmaz. Gmail API veya Resend kullanılmalıdır.
+- **Gmail OAuth refresh token süresi:** OAuth consent screen "Testing" modunda olduğu için refresh token **7 günde bir** geçersiz olur (`invalid_grant` hatası). Kalıcı çözüm için Google'ın "Publish App" onayı gerekir veya her 7 günde OAuth Playground'dan yeni token alınmalıdır.
+- **Toplantı hatırlatıcı sessiz hata:** `sendUpcomingMeetingReminders` fonksiyonu DB hatası veya alıcısız toplantı durumunda log üretmiyordu — `meetings/meetings.service.ts`'e logging eklendi (commit: `30c3e5f`).
+- **Toplantı hatırlatıcı alıcı filtresi:** `notificationEmailEnabled=false` olan üyeler toplantı emaili almaz. Eğer tüm üyeler email almıyorsa bu alanı DB'den kontrol et.

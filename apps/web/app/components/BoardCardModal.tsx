@@ -69,6 +69,7 @@ export function BoardCardModal({
   onDeleteChecklistItem,
   onError,
 }: Props) {
+  const isAssignee = card.assignees.some((a) => a.member.id === currentUserId);
   const [title, setTitle] = useState(card.title);
   const [description, setDescription] = useState(card.description ?? '');
   const [startAt, setStartAt] = useState(toInputDate(card.startAt));
@@ -573,6 +574,7 @@ export function BoardCardModal({
                   members={members}
                   currentUserId={currentUserId}
                   readOnly={readOnly}
+                  isAssignee={isAssignee}
                   onError={onError}
                 />
               )}
@@ -602,6 +604,7 @@ export function BoardCardModal({
                     item={item}
                     index={idx}
                     readOnly={readOnly}
+                    canToggle={!readOnly || isAssignee}
                     onToggle={(done) => onUpdateChecklistItem(item.id, { done })}
                     onDelete={() => onDeleteChecklistItem(item.id)}
                     onUpdateText={(text) => onUpdateChecklistItem(item.id, { text })}
@@ -638,6 +641,7 @@ function ChecklistRow({
   item,
   index,
   readOnly,
+  canToggle,
   onToggle,
   onDelete,
   onUpdateText,
@@ -645,6 +649,7 @@ function ChecklistRow({
   item: BoardChecklistItem;
   index: number;
   readOnly: boolean;
+  canToggle?: boolean;
   onToggle: (done: boolean) => Promise<void>;
   onDelete: () => Promise<void>;
   onUpdateText: (text: string) => Promise<void>;
@@ -673,7 +678,7 @@ function ChecklistRow({
       <input
         type="checkbox"
         checked={item.done}
-        disabled={readOnly}
+        disabled={canToggle !== undefined ? !canToggle : readOnly}
         onChange={(e) => void onToggle(e.target.checked)}
       />
       {editing ? (

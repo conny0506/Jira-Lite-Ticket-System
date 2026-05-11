@@ -27,6 +27,7 @@ enum TeamRole {
   BOARD
   CAPTAIN
   RD_LEADER
+  ADMIN
 }
 
 enum Department {
@@ -138,6 +139,7 @@ model TeamMember {
   boardCardsAssigned BoardCardAssignee[]
   boardComments      BoardComment[]
   boardCommentReactions BoardCommentReaction[]
+  calendarNotes        CalendarNote[]
 
   @@index([passwordResetTokenHash])
 }
@@ -443,6 +445,18 @@ model BoardCardLabel {
   label   BoardLabel @relation(fields: [labelId], references: [id], onDelete: Cascade)
 
   @@id([cardId, labelId])
+}
+
+model CalendarNote {
+  id          String     @id @default(cuid())
+  date        DateTime   @db.Date
+  content     String
+  createdById String
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  createdBy   TeamMember @relation(fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([date])
 }
 
 model BoardChecklistItem {

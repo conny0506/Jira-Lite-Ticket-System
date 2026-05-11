@@ -26,7 +26,7 @@ export class TeamMembersService {
     return this.prisma.teamMember.findMany({
       where: {
         ...(activeOnly ? { active: true } : {}),
-        ...(actor.role === TeamRole.CAPTAIN ? {} : { id: actor.id }),
+        ...(['CAPTAIN', 'ADMIN'].includes(actor.role) ? {} : { id: actor.id }),
       },
       orderBy: [{ role: 'asc' }, { name: 'asc' }],
       select: {
@@ -233,8 +233,8 @@ export class TeamMembersService {
 
   private async assertCaptain(actorId: string) {
     const actor = await this.authService.getActorOrThrow(actorId);
-    if (actor.role !== TeamRole.CAPTAIN) {
-      throw new BadRequestException('Takım üyelerini sadece kaptan yönetebilir');
+    if (!['CAPTAIN', 'ADMIN'].includes(actor.role)) {
+      throw new BadRequestException('Takım üyelerini sadece kaptan veya admin yönetebilir');
     }
   }
 

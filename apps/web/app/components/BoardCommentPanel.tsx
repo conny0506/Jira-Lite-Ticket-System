@@ -13,10 +13,11 @@ type Props = {
   members: BoardMember[];
   currentUserId: string;
   readOnly: boolean;
+  isAssignee?: boolean;
   onError: (msg: string) => void;
 };
 
-export function BoardCommentPanel({ bundle, cardId, members, currentUserId, readOnly, onError }: Props) {
+export function BoardCommentPanel({ bundle, cardId, members, currentUserId, readOnly, isAssignee, onError }: Props) {
   const [comments, setComments] = useState<BoardComment[]>([]);
   const [loading, setLoading] = useState(true);
   const [body, setBody] = useState('');
@@ -235,7 +236,7 @@ export function BoardCommentPanel({ bundle, cardId, members, currentUserId, read
                         <span className="boardReactionCount">{r.count}</span>
                       </button>
                     ))}
-                    {!readOnly && !editing && (
+                    {(!readOnly || isAssignee) && !editing && (
                       <div className="boardReactionAdd">
                         <button type="button" className="boardReactionAddBtn" aria-label="Reaksiyon ekle">😊+</button>
                         <div className="boardReactionPicker">
@@ -247,7 +248,7 @@ export function BoardCommentPanel({ bundle, cardId, members, currentUserId, read
                     )}
                   </div>
                 </div>
-                {canEdit && !editing && !readOnly && (
+                {canEdit && !editing && (!readOnly || isAssignee) && (
                   <div className="boardCommentActions">
                     <button type="button" onClick={() => { setEditingId(c.id); setEditBody(c.body); }} aria-label="Düzenle">✎</button>
                     <button type="button" onClick={() => handleDelete(c.id)} aria-label="Sil" className="isDanger">×</button>
@@ -259,7 +260,7 @@ export function BoardCommentPanel({ bundle, cardId, members, currentUserId, read
         </AnimatePresence>
       </ul>
 
-      {!readOnly && (
+      {(!readOnly || isAssignee) && (
         <form className="boardCommentForm" onSubmit={handleSubmit}>
           <textarea
             ref={textareaRef}

@@ -2276,6 +2276,131 @@ select[multiple] {
   padding: 1px 2px;
 }
 
+/* ── Calendar Note Modal ─────────────────────────────── */
+.calNoteOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.calNoteModal {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px;
+  min-width: 320px;
+  max-width: 480px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.calNoteModalHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.calNoteModalTitle {
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.calNoteModalClose {
+  background: none;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  color: var(--muted);
+  line-height: 1;
+  padding: 0 4px;
+}
+.calNoteModalClose:hover { color: var(--text); }
+
+.calNoteEmpty {
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+  padding: 8px 0;
+}
+
+.calNoteList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.calNoteItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  background: var(--surface);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.calNoteContent {
+  flex: 1;
+  line-height: 1.4;
+}
+
+.calNoteAuthor {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.calNoteDeleteBtn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 2px;
+  flex-shrink: 0;
+}
+.calNoteDeleteBtn:hover { color: #e53935; }
+
+.calNoteForm {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.calNoteInput {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.calNoteSubmitBtn {
+  padding: 6px 14px;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+.calNoteSubmitBtn:disabled { opacity: 0.5; cursor: default; }
+
 /* ── Audit Log Feed ───────────────────────────────────── */
 .auditFeed {
   display: flex;

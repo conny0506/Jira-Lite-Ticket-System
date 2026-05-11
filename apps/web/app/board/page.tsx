@@ -44,7 +44,7 @@ export default function BoardPage() {
         return;
       }
       setBundle(parsed);
-      setReadOnly(parsed.user.role !== 'CAPTAIN' && parsed.user.role !== 'BOARD');
+      setReadOnly(!['CAPTAIN', 'BOARD', 'RD_LEADER', 'ADMIN'].includes(parsed.user.role));
       setAuthChecked(true);
     } catch {
       router.replace('/');

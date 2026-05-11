@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { DragEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, LayoutGroup, motion, useMotionValue, useSpring } from 'framer-motion';
@@ -6,11 +6,11 @@ import Link from 'next/link';
 import type { Options as DocxPreviewOptions } from 'docx-preview';
 import { KanbanBoard } from './components/KanbanBoard';
 import { DashboardCharts } from './components/DashboardCharts';
-import { CalendarView } from './components/CalendarView';
+import { CalendarView, type CalendarNote } from './components/CalendarView';
 import { AuditLogFeed } from './components/AuditLogFeed';
 import { ScoreRing } from './components/ScoreRing';
 
-type TeamRole = 'MEMBER' | 'BOARD' | 'CAPTAIN' | 'RD_LEADER';
+type TeamRole = 'MEMBER' | 'BOARD' | 'CAPTAIN' | 'RD_LEADER' | 'ADMIN';
 type Department = 'SOFTWARE' | 'INDUSTRIAL' | 'MECHANICAL' | 'ELECTRICAL_ELECTRONICS';
 type MeetingTargetMode = 'ALL' | 'SELECTED';
 type TicketStatus = 'TODO' | 'IN_PROGRESS' | 'IN_REVIEW' | 'DONE';
@@ -345,8 +345,8 @@ const ROLE_LABELS: Record<TeamRole, string> = {
   BOARD: 'Yönetim Kurulu',
   CAPTAIN: 'Kaptan',
   RD_LEADER: 'AR-GE Lideri',
+  ADMIN: 'Admin',
 };
-
 const PRIORITY_LABELS: Record<TicketPriority, string> = {
   LOW: 'Düşük',
   MEDIUM: 'Orta',
@@ -612,6 +612,7 @@ export default function HomePage() {
   const [isSubmittingAnnouncement, setIsSubmittingAnnouncement] = useState(false);
   const [announcementFieldError, setAnnouncementFieldError] = useState('');
   const [leaves, setLeaves] = useState<Leave[]>([]);
+  const [calendarNotes, setCalendarNotes] = useState<CalendarNote[]>([]);
   const [myLeaves, setMyLeaves] = useState<Leave[]>([]);
   const [leaveStartDate, setLeaveStartDate] = useState('');
   const [leaveEndDate, setLeaveEndDate] = useState('');
@@ -650,8 +651,8 @@ export default function HomePage() {
   const memberTabRef = useRef<MemberTab>(memberTab);
 
   const currentUser = authBundle?.user ?? null;
-  const isCaptain = currentUser?.role === 'CAPTAIN';
-  const isMember = currentUser?.role === 'MEMBER' || currentUser?.role === 'RD_LEADER';
+  const isCaptain = ['CAPTAIN', 'RD_LEADER', 'ADMIN'].includes(currentUser?.role ?? '');
+  const isMember = currentUser?.role === 'MEMBER';
   const isBoard = currentUser?.role === 'BOARD';
   const systemProject = projects.find((p) => p.key === 'ULGEN-SYSTEM') ?? projects[0];
   const workspaceProjectCount = projects.filter(
@@ -1494,8 +1495,8 @@ export default function HomePage() {
 
   async function loadAll() {
     if (!currentUser) return;
-    const isCaptainUser = currentUser.role === 'CAPTAIN';
-    const [projectData, memberData, ticketData, meetingData, announcementData, leaveData, templateData] = await Promise.all([
+    const isCaptainUser = ['CAPTAIN', 'RD_LEADER', 'ADMIN'].includes(currentUser.role);
+    const [projectData, memberData, ticketData, meetingData, announcementData, leaveData, templateData, calendarNotesData] = await Promise.all([
       apiFetch('/projects'),
       apiFetch('/team-members'),
       apiFetch('/tickets'),
@@ -1503,8 +1504,10 @@ export default function HomePage() {
       apiFetch('/announcements'),
       isCaptainUser ? apiFetch('/leaves') : apiFetch('/leaves/mine'),
       apiFetch('/templates'),
+      apiFetch('/calendar-notes?month=' + new Date().toISOString().slice(0, 7)),
     ]);
     setTemplates(templateData as TicketTemplate[]);
+    setCalendarNotes(calendarNotesData as CalendarNote[]);
     setProjects(projectData);
     setTeamMembers(memberData);
     setTickets(ticketData);
@@ -1591,7 +1594,7 @@ export default function HomePage() {
       setMemberTab('home');
       setBoardAllTaskDepartmentFilter('ALL');
     }
-    if (currentUser.role === 'MEMBER' || currentUser.role === 'RD_LEADER') {
+    if (currentUser.role === 'MEMBER') {
       setMemberTab('home');
     }
   }, [currentUser]);
@@ -1955,6 +1958,28 @@ export default function HomePage() {
       showToast('success', 'Duyuru silindi.');
     } catch (error) {
       showToast('error', error instanceof Error ? error.message : 'Duyuru silinemedi.');
+    }
+  }
+
+  async function addCalendarNote(date: string, content: string) {
+    try {
+      const note = await apiFetch('/calendar-notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date, content }),
+      });
+      setCalendarNotes((prev) => [...prev, note as CalendarNote]);
+    } catch (error) {
+      showToast('error', error instanceof Error ? error.message : 'Not eklenemedi.');
+    }
+  }
+
+  async function deleteCalendarNote(id: string) {
+    try {
+      await apiFetch(`/calendar-notes/${id}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' } });
+      setCalendarNotes((prev) => prev.filter((n) => n.id !== id));
+    } catch (error) {
+      showToast('error', error instanceof Error ? error.message : 'Not silinemedi.');
     }
   }
 
@@ -3686,7 +3711,7 @@ export default function HomePage() {
                     {captainMemberStats.map(({ member, total, active, done, late, avgDays }) => (
                       <tr key={member.id}>
                         <td>{member.name}</td>
-                        <td className="muted">{member.role === 'RD_LEADER' ? 'AR-GE Lid.' : 'Üye'}</td>
+                        <td className="muted">{member.role === 'RD_LEADER' ? 'AR-GE Lid.' : member.role === 'ADMIN' ? 'Admin' : 'Üye'}</td>
                         <td><strong>{total}</strong></td>
                         <td>{active}</td>
                         <td style={{ color: done > 0 ? 'var(--accent)' : undefined }}>{done}</td>
@@ -3761,6 +3786,10 @@ export default function HomePage() {
                     .filter((l) => l.status === 'APPROVED')
                     .map((l) => ({ date: l.startDate, type: 'leave' as const, label: l.member?.name ?? 'İzin', id: `leave-${l.id}` })),
                 ]}
+                notes={calendarNotes}
+                canManageNotes={isCaptain}
+                onAddNote={addCalendarNote}
+                onDeleteNote={deleteCalendarNote}
               />
             </motion.div>
           )}
@@ -3813,6 +3842,7 @@ export default function HomePage() {
                   <option value="BOARD">Kurul</option>
                   <option value="MEMBER">Üye</option>
                   <option value="RD_LEADER">AR-GE Lideri</option>
+                  <option value="ADMIN">Admin</option>
                 </select>
                 <select
                   value={teamDepartmentFilter}
@@ -3858,7 +3888,7 @@ export default function HomePage() {
                   required
                 />
                 <select value={memberRole} onChange={(e) => setMemberRole(e.target.value as TeamRole)}>
-                  {(['MEMBER', 'RD_LEADER', 'BOARD', 'CAPTAIN'] as TeamRole[]).map((role) => (
+                  {(['MEMBER', 'RD_LEADER', 'BOARD', 'CAPTAIN', 'ADMIN'] as TeamRole[]).map((role) => (
                     <option key={role} value={role}>
                       {ROLE_LABELS[role]}
                     </option>
@@ -4859,6 +4889,8 @@ export default function HomePage() {
                     .filter((l) => l.status === 'APPROVED')
                     .map((l) => ({ date: l.startDate, type: 'leave' as const, label: 'İzin', id: `leave-${l.id}` })),
                 ]}
+                notes={calendarNotes}
+                canManageNotes={false}
               />
             </motion.div>
           )}

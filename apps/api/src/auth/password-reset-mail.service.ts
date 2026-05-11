@@ -354,6 +354,41 @@ export class PasswordResetMailService {
     await this.sendEmail({ to: params.to, content });
   }
 
+  async sendMeetingCreatedEmail(params: {
+    to: string;
+    name: string;
+    meetingUrl: string;
+    scheduledAt: Date;
+    note?: string;
+  }) {
+    const meetingTime = params.scheduledAt.toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' });
+    const noteLine = params.note?.trim() ? `Not: ${params.note.trim()}` : '';
+    const content: EmailContent = {
+      subject: 'Yeni Toplanti Planlanmasi Hakkinda Bilgilendirme',
+      text: [
+        `Merhaba ${params.name},`,
+        '',
+        'Yeni bir toplanti planlanmistir.',
+        `Tarih / Saat: ${meetingTime} (TSI)`,
+        `Toplanti Linki: ${params.meetingUrl}`,
+        noteLine,
+        '',
+        'Toplantidan 15 dakika once ayrica hatirlatma yapilacaktir.',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+      html: `
+        <p>Merhaba ${this.escapeHtml(params.name)},</p>
+        <p>Yeni bir toplanti planlanmistir.</p>
+        <p><strong>Tarih / Saat:</strong> ${this.escapeHtml(meetingTime)} (TSI)</p>
+        <p><strong>Toplanti Linki:</strong> <a href="${params.meetingUrl}">${this.escapeHtml(params.meetingUrl)}</a></p>
+        ${noteLine ? `<p><strong>Not:</strong> ${this.escapeHtml(params.note!.trim())}</p>` : ''}
+        <p><em>Toplantidan 15 dakika once ayrica hatirlatma yapilacaktir.</em></p>
+      `,
+    };
+    await this.sendEmail({ to: params.to, content });
+  }
+
   async sendMeetingReminderEmail(params: {
     to: string;
     name: string;

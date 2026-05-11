@@ -290,9 +290,28 @@ export class MeetingsService implements OnModuleInit, OnModuleDestroy {
     const row = await this.getCurrentMeetingRow(now);
     if (!row) throw new BadRequestException('Toplanti kaydi olusturulamadi');
     const targetDepartments = await this.getMeetingDepartments(row.id);
+    const includeInterns = row.includeInterns ?? true;
+    const targetMode = row.targetMode ?? 'ALL';
+
+    const recipients = await this.getRecipients({ includeInterns, targetMode, targetDepartments });
+    for (const user of recipients) {
+      try {
+        await this.mailService.sendMeetingCreatedEmail({
+          to: user.email,
+          name: user.name,
+          scheduledAt: row.scheduledAt,
+          meetingUrl: row.meetingUrl,
+          note: row.note ?? undefined,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'unknown';
+        this.logger.error(`Toplanti olusturma maili gonderilemedi [${user.email}]: ${message}`);
+      }
+    }
+
     return {
       meeting: this.toMeetingResponse(
-        { ...row, includeInterns: row.includeInterns ?? true, targetMode: row.targetMode ?? 'ALL' },
+        { ...row, includeInterns, targetMode },
         targetDepartments,
       ),
     };

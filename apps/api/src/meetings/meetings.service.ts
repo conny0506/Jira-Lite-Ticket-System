@@ -435,6 +435,10 @@ export class MeetingsService implements OnModuleInit, OnModuleDestroy {
       const from = new Date(now.getTime() + 14 * 60 * 1000);
       const to = new Date(now.getTime() + 16 * 60 * 1000);
 
+      this.logger.log(
+        `Toplanti hatirlatici kontrol ediliyor — pencere: ${from.toISOString()} / ${to.toISOString()}`,
+      );
+
       let meetings: Array<{
         id: string;
         scheduledAt: Date;
@@ -482,7 +486,12 @@ export class MeetingsService implements OnModuleInit, OnModuleDestroy {
         `;
       }
 
-      if (meetings.length === 0) return;
+      if (meetings.length === 0) {
+        this.logger.log('Pencerede hatirlatilacak toplanti bulunamadi');
+        return;
+      }
+
+      this.logger.log(`${meetings.length} toplanti icin hatirlatma gonderiliyor`);
 
       for (const meeting of meetings) {
         const targetDepartments = await this.getMeetingDepartments(meeting.id);
@@ -492,6 +501,11 @@ export class MeetingsService implements OnModuleInit, OnModuleDestroy {
           targetDepartments,
         });
 
+        this.logger.log(
+          `Toplanti ${meeting.id} (${meeting.scheduledAt.toISOString()}): ${recipients.length} alici bulundu`,
+        );
+
+        let sentCount = 0;
         for (const user of recipients) {
           try {
             await this.mailService.sendMeetingReminderEmail({
@@ -501,11 +515,16 @@ export class MeetingsService implements OnModuleInit, OnModuleDestroy {
               meetingUrl: meeting.meetingUrl,
               note: meeting.note ?? undefined,
             });
+            sentCount++;
           } catch (error) {
             const message = error instanceof Error ? error.message : 'unknown';
-            this.logger.error(`Meeting reminder mail failed for ${user.email}: ${message}`);
+            this.logger.error(`Toplanti hatirlatma maili gonderilemedi [${user.email}]: ${message}`);
           }
         }
+
+        this.logger.log(
+          `Toplanti ${meeting.id}: ${sentCount}/${recipients.length} mail gonderildi`,
+        );
 
         await this.prisma.$executeRaw`
           UPDATE "Meeting"
@@ -514,6 +533,9 @@ export class MeetingsService implements OnModuleInit, OnModuleDestroy {
           WHERE "id" = ${meeting.id}
         `;
       }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Toplanti hatirlatici beklenmedik hata: ${message}`);
     } finally {
       this.isReminderRunning = false;
     }

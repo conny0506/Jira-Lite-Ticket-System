@@ -23,7 +23,11 @@ export class AuthRateLimitService implements OnModuleDestroy {
     windowSeconds: number,
   ) {
     if (this.redisClient) {
-      return this.incrementRedis(action, ip, limit, windowSeconds);
+      try {
+        return await this.incrementRedis(action, ip, limit, windowSeconds);
+      } catch {
+        // Redis unavailable (limit exceeded, connection error vb.) — memory'ye fallback
+      }
     }
     return this.incrementMemory(action, ip, limit, windowSeconds);
   }

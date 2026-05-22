@@ -307,6 +307,7 @@ export class MeetingsService implements OnModuleInit, OnModuleDestroy {
         const message = error instanceof Error ? error.message : 'unknown';
         this.logger.error(`Toplanti olusturma maili gonderilemedi [${user.email}]: ${message}`);
       }
+      await this.sleep(250);
     }
 
     return {
@@ -382,6 +383,7 @@ export class MeetingsService implements OnModuleInit, OnModuleDestroy {
         const message = error instanceof Error ? error.message : 'unknown';
         this.logger.error(`Meeting update mail failed for ${user.email}: ${message}`);
       }
+      await this.sleep(250);
     }
 
     return {
@@ -423,6 +425,7 @@ export class MeetingsService implements OnModuleInit, OnModuleDestroy {
         const message = error instanceof Error ? error.message : 'unknown';
         this.logger.error(`Meeting cancel mail failed for ${user.email}: ${message}`);
       }
+      await this.sleep(250);
     }
 
     return { ok: true };
@@ -443,6 +446,10 @@ export class MeetingsService implements OnModuleInit, OnModuleDestroy {
       clearInterval(this.reminderTimer);
       this.reminderTimer = null;
     }
+  }
+
+  private sleep(ms: number) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   private async sendUpcomingMeetingReminders() {
@@ -539,6 +546,7 @@ export class MeetingsService implements OnModuleInit, OnModuleDestroy {
             const message = error instanceof Error ? error.message : 'unknown';
             this.logger.error(`Toplanti hatirlatma maili gonderilemedi [${user.email}]: ${message}`);
           }
+          await this.sleep(250);
         }
 
         this.logger.log(

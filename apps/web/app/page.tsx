@@ -139,6 +139,7 @@ type MemberTab =
   | 'all_tasks'
   | 'announcements'
   | 'my_leaves'
+  | 'rd_tasks'
   | 'settings';
 
 type Announcement = {
@@ -651,7 +652,8 @@ export default function HomePage() {
   const memberTabRef = useRef<MemberTab>(memberTab);
 
   const currentUser = authBundle?.user ?? null;
-  const isCaptain = ['CAPTAIN', 'RD_LEADER', 'ADMIN'].includes(currentUser?.role ?? '');
+  const isCaptain = ['CAPTAIN', 'ADMIN'].includes(currentUser?.role ?? '');
+  const isRdLeader = currentUser?.role === 'RD_LEADER';
   const isMember = currentUser?.role === 'MEMBER';
   const isBoard = currentUser?.role === 'BOARD';
   const systemProject = projects.find((p) => p.key === 'ULGEN-SYSTEM') ?? projects[0];
@@ -1495,7 +1497,7 @@ export default function HomePage() {
 
   async function loadAll() {
     if (!currentUser) return;
-    const isCaptainUser = ['CAPTAIN', 'RD_LEADER', 'ADMIN'].includes(currentUser.role);
+    const isCaptainUser = ['CAPTAIN', 'ADMIN'].includes(currentUser.role);
     const [projectData, memberData, ticketData, meetingData, announcementData, leaveData, templateData, calendarNotesData] = await Promise.all([
       apiFetch('/projects'),
       apiFetch('/team-members'),
@@ -3360,6 +3362,9 @@ export default function HomePage() {
                 <button type="button" className={memberTab === 'my_leaves' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('my_leaves')}><span>Izin Taleplerim</span>{memberTab === 'my_leaves' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
                 <button type="button" className="tabBtn" onClick={() => { window.location.href = '/board'; }}><span>Odak Panosu</span></button>
                 <button type="button" className={memberTab === 'settings' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('settings')}><span>Ayarlar</span>{memberTab === 'settings' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                {isRdLeader && (
+                  <button type="button" className={memberTab === 'rd_tasks' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('rd_tasks' as MemberTab)}><span>Gorevler</span>{memberTab === ('rd_tasks' as MemberTab) && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
+                )}
                 {isBoard && (
                   <button type="button" className={memberTab === 'all_tasks' ? 'tabBtn active' : 'tabBtn'} onClick={() => setMemberTab('all_tasks')}><span>Tum Gorevler</span>{memberTab === 'all_tasks' && <motion.i className="tabIndicator" layoutId="memberTabIndicator" transition={{ type: 'spring', stiffness: 320, damping: 26 }} />}</button>
                 )}
@@ -4290,6 +4295,122 @@ export default function HomePage() {
                   <p className="muted">Atanmayi bekleyen gorev bulunamadi.</p>
                 )}
               </div>
+            </motion.div>
+          )}
+          {!loading && isRdLeader && memberTab === 'rd_tasks' && (
+            <motion.div
+              key="rdleader-tasks"
+              className="tabScene"
+              initial={{ opacity: 0, y: 10, scale: 0.99 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.99 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+            >
+              <div className="filterRow">
+                <input
+                  placeholder="Gorev ara"
+                  value={taskSearch}
+                  onChange={(e) => setTaskSearch(e.target.value)}
+                />
+                <select
+                  value={taskPriorityFilter}
+                  onChange={(e) => setTaskPriorityFilter(e.target.value as 'ALL' | TicketPriority)}
+                >
+                  <option value="ALL">Tum Oncelikler</option>
+                  <option value="LOW">{PRIORITY_LABELS.LOW}</option>
+                  <option value="MEDIUM">{PRIORITY_LABELS.MEDIUM}</option>
+                  <option value="HIGH">{PRIORITY_LABELS.HIGH}</option>
+                  <option value="CRITICAL">{PRIORITY_LABELS.CRITICAL}</option>
+                </select>
+              </div>
+              <form onSubmit={createTicket} className="ticketForm">
+                {templates.length > 0 && (
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4 }}>
+                    <select
+                      value={selectedTemplateId}
+                      onChange={(e) => {
+                        const tid = e.target.value;
+                        setSelectedTemplateId(tid);
+                        const tpl = templates.find((t) => t.id === tid);
+                        if (tpl) {
+                          setTicketTitle(tpl.title);
+                          setTicketDesc(tpl.description ?? '');
+                          setTicketPriority(tpl.priority);
+                        }
+                      }}
+                      style={{ flex: 1 }}
+                    >
+                      <option value="">Şablondan yükle...</option>
+                      {templates.map((t) => (
+                        <option key={t.id} value={t.id}>{t.title}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                <input placeholder="Gorev basligi" value={ticketTitle} onChange={(e) => { setTicketTitle(e.target.value); setTicketFieldError(''); setSelectedTemplateId(''); }} required />
+                <textarea placeholder="Aciklama" value={ticketDesc} onChange={(e) => { setTicketDesc(e.target.value); setSelectedTemplateId(''); }} />
+                <input type="datetime-local" value={ticketDueAt} onChange={(e) => setTicketDueAt(e.target.value)} required />
+                <select value={ticketPriority} onChange={(e) => setTicketPriority(e.target.value as TicketPriority)}>
+                  <option value="LOW">{PRIORITY_LABELS.LOW}</option>
+                  <option value="MEDIUM">{PRIORITY_LABELS.MEDIUM}</option>
+                  <option value="HIGH">{PRIORITY_LABELS.HIGH}</option>
+                  <option value="CRITICAL">{PRIORITY_LABELS.CRITICAL}</option>
+                </select>
+                <select value={ticketAssignmentMode} onChange={(e) => setTicketAssignmentMode(e.target.value as 'MANUAL' | 'DEPARTMENT')}>
+                  <option value="MANUAL">Atama: Manuel</option>
+                  <option value="DEPARTMENT">Atama: Departman Bazli</option>
+                </select>
+                {ticketAssignmentMode === 'MANUAL' && (
+                  <>
+                    <select value={ticketManualDepartmentFilter} onChange={(e) => setTicketManualDepartmentFilter(e.target.value as 'ALL' | Department)}>
+                      <option value="ALL">Atanan filtresi: Tum departmanlar</option>
+                      {(Object.keys(DEPARTMENT_LABELS) as Department[]).map((department) => (
+                        <option key={department} value={department}>Atanan filtresi: {DEPARTMENT_LABELS[department]}</option>
+                      ))}
+                    </select>
+                    {ticketManualAssigneeIds.map((selectedMemberId, index) => {
+                      const selectedByOthers = new Set(ticketManualAssigneeIds.filter((id, idx) => idx !== index && Boolean(id)));
+                      const selectableMembers = manualAssignableMembers.filter((member) => !selectedByOthers.has(member.id) || member.id === selectedMemberId);
+                      const placeholder = index === 0 ? '1. atanan (zorunlu)' : `${index + 1}. atanan (opsiyonel)`;
+                      return (
+                        <div key={`rd-manual-assignee-${index}`} className="submissionBox">
+                          <select value={selectedMemberId} onChange={(e) => setManualAssigneeAt(index, e.target.value)} required={index === 0}>
+                            <option value="">{placeholder}</option>
+                            {selectableMembers.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                          </select>
+                          {index >= 2 && <button type="button" onClick={() => removeManualAssigneeField(index)}>-</button>}
+                        </div>
+                      );
+                    })}
+                    <button type="button" onClick={addManualAssigneeField} disabled={!canAddManualAssigneeField}>+ Atanan Ekle</button>
+                  </>
+                )}
+                {ticketAssignmentMode === 'DEPARTMENT' && (
+                  <>
+                    <select value={ticketTargetDepartment} onChange={(e) => setTicketTargetDepartment(e.target.value as Department)}>
+                      {(Object.keys(DEPARTMENT_LABELS) as Department[]).map((department) => (
+                        <option key={department} value={department}>Departman: {DEPARTMENT_LABELS[department]}</option>
+                      ))}
+                    </select>
+                    <select value={ticketDepartmentSelectionMode} onChange={(e) => setTicketDepartmentSelectionMode(e.target.value as 'ALL' | 'SELECTED')}>
+                      <option value="ALL">Departmandaki tum uyeler</option>
+                      <option value="SELECTED">Departmandan secili uyeler</option>
+                    </select>
+                    {ticketDepartmentSelectionMode === 'SELECTED' && (
+                      <div className="submissionBox">
+                        {activeMembersInTargetDepartment.map((member) => (
+                          <label key={member.id} className="muted">
+                            <input type="checkbox" checked={ticketDepartmentMemberIds.includes(member.id)} onChange={(e) => { setTicketDepartmentMemberIds((prev) => e.target.checked ? [...new Set([...prev, member.id])] : prev.filter((id) => id !== member.id)); }} />{' '}{member.name}
+                          </label>
+                        ))}
+                        {activeMembersInTargetDepartment.length === 0 && <p className="muted">Bu departmanda aktif uye yok.</p>}
+                      </div>
+                    )}
+                  </>
+                )}
+                {ticketFieldError && <p className="fieldError">{ticketFieldError}</p>}
+                <button type="submit" disabled={isCreatingTicket}>{isCreatingTicket ? 'Olusturuluyor...' : 'Gorev Olustur'}</button>
+              </form>
             </motion.div>
           )}
           {!loading && isCaptain && captainTab === 'submissions' && (

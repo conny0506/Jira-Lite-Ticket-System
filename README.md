@@ -1,6 +1,10 @@
 # Jira-lite Ticket Sistemi
 
+[![CI](https://github.com/conny0506/Jira-Lite-Ticket-System/actions/workflows/ci.yml/badge.svg)](https://github.com/conny0506/Jira-Lite-Ticket-System/actions/workflows/ci.yml)
+
 Takım yönetimi ve görev takibi için geliştirilmiş, Jira'dan ilham alan lightweight bir proje yönetim uygulaması.
+
+> **Canlı Demo:** [www.ulgenyonetim.com](https://www.ulgenyonetim.com) · API: Render · Web: Vercel · DB: PostgreSQL
 
 ## Özellikler
 
@@ -97,8 +101,8 @@ Takım yönetimi ve görev takibi için geliştirilmiş, Jira'dan ilham alan lig
 | Katman | Teknoloji |
 |--------|-----------|
 | Backend | NestJS + Prisma ORM + PostgreSQL |
-| Kuyruk | BullMQ + Redis |
-| Frontend | Next.js 15 + Framer Motion |
+| Cache / Rate Limit | Redis (ioredis) |
+| Frontend | Next.js 16 + Framer Motion |
 | Grafikler | Recharts |
 | Gerçek Zamanlı | Server-Sent Events (SSE) |
 | Rate Limiting | @nestjs/throttler |
